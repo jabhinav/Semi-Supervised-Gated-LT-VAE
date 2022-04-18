@@ -9,13 +9,14 @@ from tqdm import tqdm
 from utils_data import CelebAReader, CELEBA_LABELS, CELEBA_EASY_LABELS
 # from evaluation.eval import pred_binary_error
 from keras.layers import Dense, Flatten, Add, Conv2D, Reshape, Conv2DTranspose
-from utils import get_transn_loss, multi_sample_normal_np, kl_divergence_gaussian
+from utils import get_transn_loss, multi_sample_normal_np, get_gaussian_kl_div, img_log_likelihood
+
 # from utils.plot import plot_vae_loss
 # from evaluation.eval import evaluate_model_discrete
-from tensorflow_probability.python.distributions import Categorical, Normal
+from tensorflow_probability.python.distributions import Categorical, Normal, Bernoulli
 
 global file_txt_results_path
-file_txt_results_path = '/Users/apple/Desktop/PhDCoursework/COMP641/InfoGAIL/temp_results.txt'
+file_txt_results_path = '/Users/apple/Desktop/PhDCoursework/COMP559/Project/code/temp_results.txt'
 
 
 class Encoder(tf.keras.Model):
@@ -73,32 +74,72 @@ class Decoder(tf.keras.Model):
         return x
 
 
+class MyInferenceLayer(tf.keras.layers.Layer):
+    def __init__(self, y_dim):
+        super(MyInferenceLayer, self).__init__()
+        self.y_dim = y_dim
+
+    def build(self, input_shape):
+        # Parameters of the model: W (z_dim*y_dim), b (y_dim,)
+        self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.y_dim), initializer='random_normal', trainable=True)
+        self.bias = self.add_weight(name='bias', shape=(self.y_dim,), initializer='random_normal', trainable=True)
+
+    def call(self, x):
+        # x is a tensor of shape (batch_size, z_dim, y_dim). We will broadcast W by multiplying with x, sum along z_dim and add bias
+        return tf.reduce_sum(x*self.kernel, axis=1) + self.bias
+
+
 class Classifier(tf.keras.Model):
     def __init__(self, y_dim):
         super(Classifier, self).__init__()
         # Defining a dense layer will give many-to-one mapping from z to y. CCVAE used one-to-one mapping.
-        self.out_prob_y = Dense(units=y_dim, activation=tf.nn.softmax)
+        self.get_logits = MyInferenceLayer(y_dim)
 
-    def call(self, encodes_z):
-        prob_y = self.out_prob_y(encodes_z)
-        return prob_y
+    def call(self, encodes_z, gates):
+        gated_z = encodes_z * gates
+        logits_y = self.get_logits(gated_z)
+        return logits_y
+
+
+class MyCondGenerationLayer(tf.keras.layers.Layer):
+    def __init__(self, z_dim, initializer=None):
+        super(MyCondGenerationLayer, self).__init__()
+        self.z_dim = z_dim
+        self.initializer = initializer
+
+    def build(self, input_shape):
+        # Parameters of the model: W (y_dim*z_dim)
+        if self.initializer == 'ones':
+            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='ones', trainable=True)
+        elif self.initializer == 'zeros':
+            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='zeros', trainable=True)
+        else:
+            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='random_normal', trainable=True)
+
+    def call(self, x):
+        # x is a tensor of shape (batch_size, y_dim, z_dim). We will broadcast W by multiplying with x, sum along y_dim
+        return tf.reduce_sum(x*self.kernel, axis=1)
 
 
 class Conditional_Prior(tf.keras.Model):
     def __init__(self, z_dim):
         super(Conditional_Prior, self).__init__()
         # Defining a dense layer will give many-to-one mapping from y to z. CCVAE used one-to-one mapping.
-        self.locs_out = Dense(units=z_dim, activation=tf.nn.relu)
-        self.std_out = Dense(units=z_dim, activation=tf.nn.softplus)
+        self.loc_true = MyCondGenerationLayer(z_dim, initializer='zeros')
+        self.loc_false = MyCondGenerationLayer(z_dim, initializer='zeros')
+        self.scale_true = MyCondGenerationLayer(z_dim, initializer='ones')
+        self.scale_false = MyCondGenerationLayer(z_dim, initializer='ones')
 
-    def call(self, y, k=None):
-        if not k:
-            k = 1
-        locs = self.locs_out(y)
-        scale = self.std_out(y)
-        scale = tf.clip_by_value(scale, clip_value_min=1e-3, clip_value_max=1e3)
-        prior_z_y = Normal(loc=locs, scale=scale)
-        return locs, scale, prior_z_y.sample(sample_shape=k)
+    def call(self, y, c):
+        # Transpose c
+        c = tf.transpose(c)
+        locs = self.loc_true(y*c) + self.loc_false((1-y)*c)
+        scale = self.scale_true(y*c) + self.scale_false((1-y)*c)
+
+        # Apply softplus to scale and clamp to avoid numerical issues
+        scale = tf.nn.softplus(scale)
+        scale = tf.clip_by_value(scale, 1e-3, 1e3)
+        return locs, scale
 
 
 class CCVAE(tf.keras.Model):
@@ -119,7 +160,7 @@ class CCVAE(tf.keras.Model):
         self.cond_prior = Conditional_Prior(z_classify)
 
         # Gating Parameters - Declare a tensor of variable parameters
-        self.mu = tf.Variable(initial_value=tf.constant(0.5, shape=(y_dim, z_classify)), trainable=True)
+        self.mu = tf.Variable(initial_value=tf.constant(0.5, shape=(z_classify, y_dim)), trainable=True)
 
     def sample_gumbel_tf(self, shape, eps=1e-20):
         U = tf.random.uniform(shape, minval=0, maxval=1)
@@ -200,7 +241,8 @@ class MyModel:
         # their inital value will be used when tf.function traces the computation graph, in order to make sure that its
         # updated value is used either pass it as an arg to the function or declare it as a variable whose value can
         # then be changed outside using var.assign which will reflect automatically inside the computation graph
-        self.p_Y = tf.Variable(1/y_dim, dtype=tf.float32)
+        # self.p_Y = tf.Variable(1/y_dim, dtype=tf.float32)
+        self.p_Y = tf.Variable(np.ones([1, len(CELEBA_EASY_LABELS)]) / 2., dtype=tf.float32, trainable=False)
 
         self.model = CCVAE(z_dim, z_classify, y_dim)
         self.optimiser = tf.keras.optimizers.Adam(self.lr)
@@ -215,8 +257,8 @@ class MyModel:
         # BUILD First
         _ = model.encoder(np.ones([1, *self.ip_shape]), np.ones([1, self.z_dim]))
         _ = model.decoder(np.ones([1, self.z_dim]))
-        _ = model.classifier(np.ones([1, self.z_classify]))
-        _ = model.cond_prior(np.ones([1, self.y_dim]))
+        _ = model.classifier(np.ones([1, self.z_classify]), np.ones([self.z_classify, self.y_dim])/2.)
+        _ = model.cond_prior(np.ones([1, self.y_dim]), np.ones([self.y_dim, self.z_classify])/2.)
 
         model.encoder.load_weights(os.path.join(param_dir, "encoder_model_{}.h5".format(model_id)))
         model.decoder.load_weights(os.path.join(param_dir, "decoder_model_{}.h5".format(model_id)))
@@ -225,15 +267,21 @@ class MyModel:
 
         return model
 
-    def classifier_loss(self, x, y, k=100):
+    def classifier_loss(self, x, y, c, k=100):
         [post_locs, post_scales] = self.model.encoder(x)
-        post_locs = post_locs[:, self.z_style:]
-        post_scales = post_scales[:, self.z_style:]
         # Draw k samples from q(z|x) and compute log(q(y_curr|z_k)) = log(q(y|z_k))*y_curr for each.
-        qy_z_k = [(lambda _z:  tf.reduce_sum(tf.math.multiply(self.model.classifier(_z), y), axis=-1))(_z)
-                  for _z in self.model.multi_sample_normal(post_locs, post_scales, self.z_classify, k)]
-        qy_z_k = tf.concat(values=[tf.expand_dims(qy_z, axis=0) for qy_z in qy_z_k], axis=0)
-        lqy_x = tf.math.log(tf.reduce_sum(qy_z_k, axis=0) + self.eps) - tf.cast(tf.math.log(float(k)), dtype=tf.float32)
+        log_qy_zc_k = []
+        for _ in range(k):
+            z = self.model.sample_normal(post_locs, post_scales, self.z_dim)
+            z_classify = z[:, self.z_style:]
+            z_classify_tiled = tf.tile(tf.expand_dims(z_classify, axis=-1), multiples=[1, 1, self.y_dim])
+            logits_y_zc = self.model.classifier(z_classify_tiled, c)
+            qy_zc = Bernoulli(logits=logits_y_zc)
+            log_qy_zc = tf.reduce_sum(qy_zc.log_prob(y), axis=-1)
+            log_qy_zc = tf.expand_dims(log_qy_zc, axis=0)
+            log_qy_zc_k.append(log_qy_zc)
+        log_qy_zc_k = tf.concat(log_qy_zc_k, axis=0)
+        lqy_x = tf.reduce_logsumexp(log_qy_zc_k, axis=0) - tf.cast(tf.math.log(float(k)), dtype=tf.float32)  ## This can go to nan
         return tf.reshape(lqy_x, shape=[tf.shape(x)[0], ])
 
     def unsup_loss(self, x):
@@ -242,34 +290,41 @@ class MyModel:
         z = self.model.sample_normal(post_locs, post_scales, self.z_dim)
 
         # Split the z into z_style and z_classify
-        z_style = z[:, :self.z_style]
         z_classify = z[:, self.z_style:]
 
-        # INFERENCE: Compute the classification prob q(y|z)
-        qy_z = self.model.classifier(z_classify)
+        # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
+        c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
+
+        # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
+        # z_classify_tiled has shape [batch, z_classify, y_dim]
+        z_classify_tiled = tf.tile(tf.expand_dims(z_classify, axis=-1), multiples=[1, 1, self.y_dim])
+
+        # INFERENCE: Compute the classification prob q(y|z, c)
+        logits_y_zc = self.model.classifier(z_classify_tiled, c)
+        qy_zc = Bernoulli(logits=logits_y_zc)
         # Sample y
-        sampled_curr_encode_y = self.model.gumbel_softmax_tf(qy_z, self.latent_sampler_temp, self.y_dim, is_prob=True)
-        log_qy_z = tf.reduce_sum(tf.math.log(qy_z + self.eps) * sampled_curr_encode_y, axis=-1)
+        y = qy_zc.sample()
+        log_qy_zc = tf.reduce_sum(qy_zc.log_prob(y), axis=-1)
 
         # GENERATION: Compute the Prior p(y)
-        log_py = tf.reduce_sum(tf.math.log(self.p_Y + self.eps) * sampled_curr_encode_y, axis=-1)
+        log_py = tf.reduce_sum(Bernoulli(probs=tf.tile(self.p_Y, [x.shape[0], 1])).log_prob(y), axis=-1)
 
         # GENERATION: Compute the Conditional prior p(z|y)
-        [prior_locs, prior_scales, sampled_z_k] = self.model.cond_prior(sampled_curr_encode_y)
+        y_tiled = tf.tile(tf.expand_dims(y, axis=-1), multiples=[1, 1, self.z_classify])
+        y_tiled = tf.cast(y_tiled, tf.float32)
+        [prior_locs, prior_scales] = self.model.cond_prior(y_tiled, c)
+        prior_locs = tf.concat([tf.zeros(shape=[tf.shape(x)[0], self.z_style]), prior_locs], axis=-1)
+        prior_scales = tf.concat([tf.ones(shape=[tf.shape(x)[0], self.z_style]), prior_scales], axis=-1)
+        kl = get_gaussian_kl_div(post_locs, post_scales, prior_locs, prior_scales)
 
-        # GENERATION: Compute the log-likelihood of actions with p(x|z), where z is sampled from q(z|x)
-        p_actions = self.model.decoder(curr_state, z)
+        # GENERATION: Compute the log-likelihood of reconstruction i.e. p(x|z)
+        recon_x = self.model.decoder(z)
+        log_pxz = img_log_likelihood(recon_x, x)
 
         # ELBO
-        ll = tf.reduce_sum(next_action * tf.math.log(p_actions + self.eps), axis=1)
-        kl = kl_divergence_gaussian(mu1=post_locs, log_sigma_sq1=tf.math.log(post_scales + self.eps),
-                                    mu2=prior_locs, log_sigma_sq2=tf.math.log(prior_scales + self.eps),
-                                    mean_batch=False)
-        elbo = ll + log_py - kl - log_qy_z
-
-        transn_loss = get_transn_loss(prev_encode, sampled_curr_encode_y)
+        elbo = log_pxz + log_py - kl - log_qy_zc
         loss = tf.reduce_mean(-elbo)
-        return loss + transn_loss
+        return loss
 
     def sup_loss(self, x, y):
 
@@ -278,24 +333,38 @@ class MyModel:
         z = self.model.sample_normal(post_locs, post_scales, self.z_dim)
 
         # Split the z into z_style and z_classify
-        z_style = z[:, :self.z_style]
         z_classify = z[:, self.z_style:]
 
-        # INFERENCE: Compute the classification prob q(y|z)
-        qy_z = self.model.classifier(z_classify)
-        log_qy_z = tf.reduce_sum(tf.math.log(qy_z + self.eps) * y, axis=-1)
+        # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
+        c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
+
+        # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
+        # z_classify_tiled has shape [batch, z_classify, y_dim]
+        z_classify_tiled = tf.tile(tf.expand_dims(z_classify, axis=-1), multiples=[1, 1, self.y_dim])
+
+        # INFERENCE: Compute the classification prob q(y|z,c)
+        logits_y_zc = self.model.classifier(z_classify_tiled, c)
+        qy_zc = Bernoulli(logits=logits_y_zc)
+        log_qy_zc = tf.reduce_sum(qy_zc.log_prob(y), axis=-1)
 
         # INFERENCE: Compute label classification q(y|x) <- Sum_z(q(y|z)*q(z|x)) ~ 1/k * Sum(q(y|z_k))
-        log_qy_x = self.classifier_loss(x, y)
+        log_qy_x = self.classifier_loss(x, y, c)
 
         # GENERATION: Compute the Prior p(y)
-        log_py = tf.reduce_sum(tf.math.log(self.p_Y + self.eps) * curr_encode, axis=-1)
+        log_py = tf.reduce_sum(Bernoulli(probs=tf.tile(self.p_Y, [x.shape[0], 1])).log_prob(y), axis=-1)
 
-        # GENERATION: Compute the Conditional prior p(z|y)
-        [prior_locs, prior_scales, sampled_z_k] = self.model.cond_prior(y)
+        # GENERATION: Compute the Conditional prior p(z|y) and then the kl divergence
+        y_tiled = tf.tile(tf.expand_dims(y, axis=-1), multiples=[1, 1, self.z_classify])
+        # Change the type of y_tiled to float32
+        y_tiled = tf.cast(y_tiled, tf.float32)
+        [prior_locs, prior_scales] = self.model.cond_prior(y_tiled, c)
+        prior_locs = tf.concat([tf.zeros(shape=[tf.shape(x)[0], self.z_style]), prior_locs], axis=-1)
+        prior_scales = tf.concat([tf.ones(shape=[tf.shape(x)[0], self.z_style]), prior_scales], axis=-1)
+        kl = get_gaussian_kl_div(post_locs, post_scales, prior_locs, prior_scales)
 
-        # GENERATION: Compute the log-likelihood of actions i.e. p(x|z)
-        p_actions = self.model.decoder(z)
+        # GENERATION: Compute the log-likelihood of reconstruction i.e. p(x|z)
+        recon_x = self.model.decoder(z)
+        log_pxz = img_log_likelihood(recon_x, x)
 
         # We only want gradients wrt to params of qyz, so stop them propagating to qzx! Why? Ref. Appendix C.3.1
         # In short, to reduce the variance in the gradients of classifier param! To a certain extent these gradients can
@@ -307,19 +376,11 @@ class MyModel:
         # log_qy_z_ = tf.stop_gradient(tf.reduce_sum(tf.log(self.classifier([z]) + self.eps) * ln_curr_encode_y_ip,
         #                                            axis=-1))
         # Compute weighted ratio
-        # w = tf.exp(log_qy_z_ - log_qy_x)
-        w = tf.exp(log_qy_z - log_qy_x)
+        w = tf.exp(log_qy_zc - log_qy_x)
 
         # ELBO
-        ll = tf.reduce_sum(next_action * tf.math.log(p_actions + self.eps), axis=1)
-        kl = kl_divergence_gaussian(mu1=post_locs, log_sigma_sq1=tf.math.log(post_scales + self.eps),
-                                    mu2=prior_locs, log_sigma_sq2=tf.math.log(prior_scales + self.eps),
-                                    mean_batch=False)
-        elbo_term1 = tf.math.multiply(w, ll - kl - log_qy_z)
+        elbo_term1 = tf.math.multiply(w, log_pxz - kl - log_qy_zc)
         elbo = elbo_term1 + log_py + log_qy_x*self.alpha
-
-        # Transition Loss does not make any sense since curr latent mode is already known
-        # transn_loss = get_transn_loss(ln_prev_encode_y_ip, ln_curr_encode_y_ip)
         loss = tf.reduce_mean(-elbo)
 
         # For Debugging
@@ -334,7 +395,7 @@ class MyModel:
     # # TIP
     # Include as much computation as possible under a tf.function to maximize the performance gain.
     # For example, decorate a whole training step or the entire training loop.
-    @tf.function
+    # @tf.function
     def train_step(self, x, y, supervised):
         with tf.GradientTape() as tape:
             if supervised:
@@ -347,24 +408,21 @@ class MyModel:
 
     def train(self, data_loaders, param_dir, fig_path, exp_num):
 
+        best_val_acc = -np.inf
         # Train the Model
-        for i in range(0, self.train_config['n_epochs']):
-
-            # initialize variables to store loss values
-            epoch_losses_sup = 0.0
-            epoch_losses_unsup = 0.0
+        for epoch in range(0, self.train_config['n_epochs']):
 
             # # # compute number of batches for an epoch
-            if args.sup_frac == 1.0:  # fully supervised
+            if self.train_config['perc_supervision'] == 1.0:  # fully supervised
                 batches_per_epoch = np.ceil(data_loaders['sup'].n_s/self.train_config['batch_size'])
                 period_sup_batches = 1
                 sup_batches = batches_per_epoch
-            elif args.sup_frac > 0.0:  # semi-supervised
+            elif self.train_config['perc_supervision'] > 0.0:  # semi-supervised
                 sup_batches = np.ceil(data_loaders['sup'].n_s/self.train_config['batch_size'])
                 unsup_batches = np.ceil(data_loaders['unsup'].n_s/self.train_config['batch_size'])
                 batches_per_epoch = sup_batches + unsup_batches
                 period_sup_batches = int(batches_per_epoch / sup_batches)
-            elif args.sup_frac == 0.0:  # unsupervised
+            elif self.train_config['perc_supervision'] == 0.0:  # unsupervised
                 sup_batches = 0.0
                 batches_per_epoch = np.ceil(data_loaders['unsup'].n_s/self.train_config['batch_size'])
                 period_sup_batches = np.Inf
@@ -372,67 +430,104 @@ class MyModel:
                 assert False, "Data frac not correct"
 
             # setup the iterators for training data loaders
-            if args.sup_frac != 0.0:
+            if self.train_config['perc_supervision'] != 0.0:
                 sup_iter = iter(data_loaders["sup"].step())
-            if args.sup_frac != 1.0:
+            if self.train_config['perc_supervision'] != 1.0:
                 unsup_iter = iter(data_loaders["unsup"].step())
 
             # count the number of supervised batches seen in this epoch
             ctr_sup = 0
 
-            for i in tqdm(range(batches_per_epoch)):
-                # whether this batch is supervised or not
-                is_supervised = (i % period_sup_batches == 0) and ctr_sup < sup_batches
-                # extract the corresponding batch
-                if is_supervised:
-                    (xs, ys) = next(sup_iter)
-                    ctr_sup += 1
-                else:
-                    (xs, ys) = next(unsup_iter)
+            # initialize variables to store loss values
+            epoch_losses_sup = 0.0
+            epoch_losses_unsup = 0.0
+            sup_loss, unsup_loss = 0.0, 0.0
 
-                if is_supervised:
-                    loss = self.train_step(xs, ys, supervised=True)
-                    epoch_losses_sup += loss.numpy()
-                else:
-                    loss = self.train_step(xs, ys, supervised=False)
-                    epoch_losses_unsup += loss.numpy()
+            # # # TRAINING LOOP
+            with tqdm(total=int(batches_per_epoch)) as pbar:
+                for i in range(int(batches_per_epoch)):
+                    # whether this batch is supervised or not
+                    is_supervised = (i % period_sup_batches == 0) and ctr_sup < sup_batches
+                    # extract the corresponding batch
+                    if is_supervised:
+                        (xs, ys) = next(sup_iter)
+                        ctr_sup += 1
+                    else:
+                        (xs, ys) = next(unsup_iter)
+
+                    if is_supervised:
+                        sup_loss = self.train_step(xs, ys, supervised=True)
+                        epoch_losses_sup += sup_loss.numpy()
+                    else:
+                        unsup_loss = self.train_step(xs, ys, supervised=False)
+                        epoch_losses_unsup += unsup_loss.numpy()
+
+                    pbar.refresh()
+                    pbar.set_description("Iteration: {}, Epoch: {}".format(i + 1, epoch + 1))
+                    pbar.set_postfix(SupLoss=sup_loss, UnsupLoss=unsup_loss)
+                    pbar.update(1)
 
             if self.train_config['perc_supervision']:
-                validation_accuracy = cc_vae.accuracy(data_loaders['valid'])
+                validation_accuracy = self.accuracy(data_loaders['valid'])
             else:
-                validation_accuracy = np.nan
+                validation_accuracy = -np.inf
 
-        #     with torch.no_grad():
-        #         # save some reconstructions
-        #         img = CELEBACached.fixed_imgs
-        #         if args.cuda:
-        #             img = img.cuda()
-        #         recon = cc_vae.reconstruct_img(img).view(-1, *im_shape)
-        #         save_image(make_grid(recon, nrow=8), './data/output/recon.png')
-        #         save_image(make_grid(img, nrow=8), './data/output/img.png')
-        #
-        #     print("[Epoch %03d] Sup Loss %.3f, Unsup Loss %.3f, Val Acc %.3f" %
-        #           (epoch, epoch_losses_sup, epoch_losses_unsup, validation_accuracy))
-        # cc_vae.save_models(args.data_dir)
-        # test_acc = cc_vae.accuracy(data_loaders['test'])
-        # print("Test acc %.3f" % test_acc)
-        # cc_vae.latent_walk(img[5], './data/output')
-        # return
+            print("[Epoch %03d] Sup Loss %.3f, Unsup Loss %.3f, Val Acc %.3f" % (epoch, epoch_losses_sup, epoch_losses_unsup, validation_accuracy), file=open(file_txt_results_path, 'a'))
 
-            #     # Save the model
-        #     avg_epoch_loss = np.average(np.array(epoch_loss))
-        #     if avg_epoch_loss < max_loss:
-        #         max_loss = avg_epoch_loss
-        #         self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_best.h5"), overwrite=True)
-        #         self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_best.h5"), overwrite=True)
-        #         self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_best.h5"), overwrite=True)
-        #         self.model.classifier.save_weights(os.path.join(param_dir, "classifier_best.h5"), overwrite=True)
-        #
-        #     if i == 0 or i == self.train_config['n_epochs']-1:
-        #         self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_%d.h5" % i), overwrite=True)
-        #         self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_%d.h5" % i), overwrite=True)
-        #         self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_%d.h5" % i), overwrite=True)
-        #         self.model.classifier.save_weights(os.path.join(param_dir, "classifier_%d.h5" % i), overwrite=True)
+            if validation_accuracy > best_val_acc:
+                best_val_acc = validation_accuracy
+                self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_best.h5"), overwrite=True)
+                self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_best.h5"), overwrite=True)
+                self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_best.h5"), overwrite=True)
+                self.model.classifier.save_weights(os.path.join(param_dir, "classifier_best.h5"), overwrite=True)
+                np.savetxt(os.path.join(param_dir, "gating_prob_best.txt"), self.model.mu.numpy(), overwrite=True)
+
+        # Save the model
+        self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_last.h5"), overwrite=True)
+        self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_last.h5"), overwrite=True)
+        self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_last.h5"), overwrite=True)
+        self.model.classifier.save_weights(os.path.join(param_dir, "classifier_last.h5"), overwrite=True)
+        np.savetxt(os.path.join(param_dir, "gating_prob_last.txt"), self.model.mu.numpy(), overwrite=True)
+
+        # Get the Test Accuracy
+        test_accuracy = self.accuracy(data_loaders['test'])
+        print("Test Accuracy: %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
+
+    def classifier_accuracy(self, x, y):
+        # INFERENCE: Compute the approximate posterior q(z|x)
+        [post_locs, post_scales] = self.model.encoder(x)
+        z = self.model.sample_normal(post_locs, post_scales, self.z_dim)
+
+        # Split the z into z_style and z_classify
+        z_classify = z[:, self.z_style:]
+
+        # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
+        c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
+
+        # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
+        # z_classify_tiled has shape [batch, z_classify, y_dim]
+        z_classify_tiled = tf.tile(tf.expand_dims(z_classify, axis=-1), multiples=[1, 1, self.y_dim])
+
+        # INFERENCE: Compute the classification prob q(y|z, c)
+        logits_y_zc = self.model.classifier(z_classify_tiled, c)
+        # Convert logits to probabilities using sigmoid
+        probs_y_zc = tf.sigmoid(logits_y_zc)
+        # Round off the probabilities to get the class labels
+        y_hat = tf.round(probs_y_zc)
+        # Compare the preidicted labels with the true labels
+        correct_prediction = tf.equal(y_hat, y)
+        # Compute the accuracy
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        return accuracy
+
+    def accuracy(self, data_loader, *args, **kwargs):
+        acc = 0.0
+        iterator = iter(data_loader.step())
+        num_batches = np.ceil(data_loader.n_s/self.train_config['batch_size'])
+        for i in range(int(num_batches)):
+            (xs, ys) = next(iterator)
+            acc += self.classifier_accuracy(xs, ys)
+        return acc / num_batches
         #
         #     pbar.refresh()
         #     pbar.set_description("Epoch {}".format(i + 1))
@@ -454,6 +549,7 @@ def run(args, exp_num=0):
         "num_iters": 10,
         "lr": args.lr,
         "init_temp": 0.1,
+        'gating_init_temp': 0.1,
         "anneal_rate": 0.00003,
         'perc_supervision': args.sup,
         'z_dim': args.z_dim,
@@ -464,12 +560,13 @@ def run(args, exp_num=0):
 
     # ################################################ Specify Paths ################################################ #
     # Root Directory
-    root_dir = "./data"
+    root_dir = args.data_dir
 
-    # Other Directory
-    model_dir = os.path.join(root_dir, "models")
+    # Data Directory
+    data_dir = os.path.join(root_dir, "data")
 
     # Model Directory
+    model_dir = os.path.join(root_dir, "models")
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     param_dir = os.path.join(model_dir, "params{}".format(exp_num))
@@ -477,7 +574,7 @@ def run(args, exp_num=0):
 
     # ################################################ Load Data ################################################ #
     print("Loading data", file=open(file_txt_results_path, 'a'))
-    reader = CelebAReader(root_dir, train_config['perc_supervision'], train_config['batch_size'])
+    reader = CelebAReader(data_dir, train_config['perc_supervision'], train_config['batch_size'])
     loaders = reader.setup_data_loaders()
 
     # ################################################ Train Model ################################################ #
@@ -493,7 +590,7 @@ def run(args, exp_num=0):
                             supervision=train_config['perc_supervision'], train_config=train_config)
     if not os.path.exists(param_dir):
         os.makedirs(param_dir)
-        ssvae_learner.train(demos_un, demos_ln, param_dir, fig_path, exp_num)
+        ssvae_learner.train(loaders, param_dir, fig_path, exp_num)
         print("Finish.", file=open(file_txt_results_path, 'a'))
     else:
         print("Model already exists! Skipping training", file=open(file_txt_results_path, 'a'))
@@ -511,22 +608,22 @@ def run(args, exp_num=0):
 
 
 def parser_args(parser):
-    parser.add_argument('--cuda', action='store_true',
-                        help="use GPU(s) to speed up training")
-    parser.add_argument('-n', '--num-epochs', default=200, type=int,
+    # parser.add_argument('--cuda', action='store_true',
+    #                     help="use GPU(s) to speed up training")
+    parser.add_argument('-n', default=200, type=int,
                         help="number of epochs to run")
-    parser.add_argument('-sup', '--sup-frac', default=1.0,
+    parser.add_argument('-sup', default=0.1,
                         type=float, help="supervised fractional amount of the data i.e. "
                                          "how many of the images have supervised labels."
                                          "Should be a multiple of train_size / batch_size")
-    parser.add_argument('-zd', '--z_dim', default=45, type=int,
+    parser.add_argument('--z_dim', default=45, type=int,
                         help="size of the tensor representing the latent variable z "
                              "variable (handwriting style for our MNIST dataset)")
-    parser.add_argument('-lr', '--learning-rate', default=1e-4, type=float,
+    parser.add_argument('-lr', default=1e-4, type=float,
                         help="learning rate for Adam optimizer")
-    parser.add_argument('-bs', '--batch-size', default=200, type=int,
+    parser.add_argument('-bs', default=16, type=int,
                         help="number of images (and labels) to be considered in a batch")
-    parser.add_argument('--data_dir', type=str, default='./data',
+    parser.add_argument('--data_dir', type=str, default='./',
                         help='Data path')
     return parser
 

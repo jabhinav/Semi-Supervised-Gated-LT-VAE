@@ -1,5 +1,7 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow_probability.python.distributions import Laplace, Normal
+from tensorflow_probability.python.distributions.kullback_leibler import kl_divergence
 
 
 def sample_gumbel_np(size, eps=1e-10):
@@ -92,3 +94,21 @@ def get_transn_loss(un_prev_encode_y, un_curr_encode_y):
     transn_loss = 1. - y_penalty
     transn_loss = tf.reduce_mean(transn_loss)
     return transn_loss
+
+
+def img_log_likelihood(recon, xs):
+    return tf.reduce_sum(Laplace(recon, tf.ones_like(recon)).log_prob(xs), axis=[1,2,3])
+
+
+def get_gaussian_kl_div(locs_q, scale_q, locs_p=None, scale_p=None):
+    """
+    Computes the KL(q||p)
+    """
+    if locs_p is None:
+        locs_p = tf.zeros_like(locs_q)
+    if scale_p is None:
+        scale_p = tf.ones_like(scale_q)
+
+    dist_q = Normal(locs_q, scale_q)
+    dist_p = Normal(locs_p, scale_p)
+    return tf.reduce_sum(kl_divergence(dist_q, dist_p), axis=-1)
