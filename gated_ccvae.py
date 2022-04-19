@@ -1,23 +1,17 @@
 import os
-import itertools
-import sys
 import numpy as np
 import argparse
-import pickle as pkl
 import tensorflow as tf
-import torch
 from tqdm import tqdm
 from utils_data import CelebAReader, CELEBA_LABELS, CELEBA_EASY_LABELS
-# from evaluation.eval import pred_binary_error
 from keras.layers import Dense, Flatten, Add, Conv2D, Reshape, Conv2DTranspose
 from utils import get_transn_loss, multi_sample_normal_np, get_gaussian_kl_div, img_log_likelihood
 
-# from utils.plot import plot_vae_loss
-# from evaluation.eval import evaluate_model_discrete
 from tensorflow_probability.python.distributions import Categorical, Normal, Bernoulli
 
 global file_txt_results_path
-file_txt_results_path = '/Users/apple/Desktop/PhDCoursework/COMP559/Project/code/temp_results.txt'
+file_txt_results_path = '/Users/apple/Desktop/PhDCoursework/COMP559/Project/code/results.txt'
+# file_txt_results_path = os.path.join(os.getcwd(), 'results.txt')
 
 
 class Encoder(tf.keras.Model):
@@ -623,5 +617,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     sup = [1.0, 0.2, 0.06]
+    sup = [1.0]
     for s in sup:
         run(args, sup=s)
