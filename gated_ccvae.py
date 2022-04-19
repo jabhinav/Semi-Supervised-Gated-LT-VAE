@@ -1,4 +1,6 @@
 import os
+import sys
+
 import numpy as np
 import argparse
 import tensorflow as tf
@@ -248,10 +250,10 @@ class MyModel:
         model = CCVAE(self.z_dim, self.z_classify, self.y_dim)
 
         # BUILD First
-        _ = model.encoder(np.ones([1, *self.ip_shape]), np.ones([1, self.z_dim]))
+        _ = model.encoder(np.ones([1, *self.ip_shape]))
         _ = model.decoder(np.ones([1, self.z_dim]))
         _ = model.classifier(np.ones([1, self.z_classify]), np.ones([self.z_classify, self.y_dim])/2.)
-        _ = model.cond_prior(np.ones([1, self.y_dim]), np.ones([self.y_dim, self.z_classify])/2.)
+        _ = model.cond_prior(np.ones([1, self.y_dim]), np.ones([self.y_dim, self.z_classify], dtype=np.float32)/2.)
 
         model.encoder.load_weights(os.path.join(param_dir, "encoder_model_{}.h5".format(model_id)))
         model.decoder.load_weights(os.path.join(param_dir, "decoder_model_{}.h5".format(model_id)))
@@ -490,9 +492,9 @@ class MyModel:
         self.model.classifier.save_weights(os.path.join(param_dir, "classifier_last.h5"), overwrite=True)
         np.savetxt(os.path.join(param_dir, "gating_prob_last.txt"), self.model.mu.numpy())
 
-        # Get the Test Accuracy
-        test_accuracy = self.accuracy(data_loaders['test'])
-        print("Test Accuracy (last model): %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
+        # # Get the Test Accuracy
+        # test_accuracy = self.accuracy(data_loaders['test'])
+        # print("Test Accuracy (last model): %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
 
     def classifier_accuracy(self, x, y):
         # INFERENCE: Compute the approximate posterior q(z|x)
@@ -581,19 +583,24 @@ def run(args, sup=0.0):
     ssvae_learner = MyModel(ip_shape=im_shape, z_dim=train_config['z_dim'], z_classify=train_config['n_classes'],
                             y_dim=train_config['n_classes'], num_samples=num_samples,
                             supervision=train_config['perc_supervision'], train_config=train_config)
-    # if not os.path.exists(param_dir):
-    # os.makedirs(param_dir)
-    ssvae_learner.train(loaders, param_dir, fig_path)
-    print("Finish.", file=open(file_txt_results_path, 'a'))
-    # else:
-    #     print("Model already exists! Skipping training", file=open(file_txt_results_path, 'a'))
+    if not os.path.exists(param_dir):
+        os.makedirs(param_dir)
+        ssvae_learner.train(loaders, param_dir, fig_path)
+        print("Finish.", file=open(file_txt_results_path, 'a'))
+    else:
+        print("Model already exists! Skipping training", file=open(file_txt_results_path, 'a'))
 
+    # ################################################ Test Model ################################################ #
+    print("Testing model", file=open(file_txt_results_path, 'a'))
+    ssvae_learner.load_model(param_dir, 'best')
+    test_accuracy = ssvae_learner.accuracy(loaders['test'])
+    print("Test Accuracy (last model): %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
 
 
 def parser_args(parser):
     # parser.add_argument('--cuda', action='store_true',
     #                     help="use GPU(s) to speed up training")
-    parser.add_argument('-n', default=200, type=int,
+    parser.add_argument('-n', default=5, type=int,
                         help="number of epochs to run")
     parser.add_argument('-sup', default=1.0,
                         type=float, help="supervised fractional amount of the data i.e. "
