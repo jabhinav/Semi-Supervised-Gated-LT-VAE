@@ -47,7 +47,7 @@ class DataLoader:
             img = np.array(img)
             # Resize the image to 64x64 using PIL
             img = PIL.Image.fromarray(img).resize((64, 64))
-            img = np.array(img)
+            img = np.array(img, dtype=np.float32)
             if normalise:
                 img = img / 255.0
             X.append(img)

@@ -97,7 +97,10 @@ def get_transn_loss(un_prev_encode_y, un_curr_encode_y):
 
 
 def img_log_likelihood(recon, xs):
-    return tf.reduce_sum(Laplace(recon, tf.ones_like(recon)).log_prob(xs), axis=[1,2,3])
+
+    recon = tf.cast(recon, tf.float32)
+    xs = tf.cast(xs, tf.float32)
+    return tf.reduce_sum(Laplace(recon, tf.ones_like(recon, dtype=tf.float32)).log_prob(xs), axis=[1,2,3])
 
 
 def get_gaussian_kl_div(locs_q, scale_q, locs_p=None, scale_p=None):
