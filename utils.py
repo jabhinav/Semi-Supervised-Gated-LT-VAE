@@ -115,3 +115,33 @@ def get_gaussian_kl_div(locs_q, scale_q, locs_p=None, scale_p=None):
     dist_q = Normal(locs_q, scale_q)
     dist_p = Normal(locs_p, scale_p)
     return tf.reduce_sum(kl_divergence(dist_q, dist_p), axis=-1)
+
+
+def get_gates(gate_type, z_classify, y_dim):
+    if gate_type == 'one-one':
+        assert z_classify == y_dim
+        # Define a diagonal matrix with ones on the diagonal
+        c = tf.eye(z_classify)
+    else:
+        raise NotImplementedError
+    return c
+
+
+def create_gating_matrix(grouped_indices, n_labels):
+    """
+    Creates a gating matrix for observed data from the cooccurance matrix
+    """
+    n_elems = len(grouped_indices)
+    cooccurance_matrix = np.zeros((n_labels, n_labels))
+    for group in grouped_indices:
+        for i in group:
+            for j in group:
+                if j != i:
+                    cooccurance_matrix[i, j] += 1
+    # Normalize the matrix (for relative frequencies)
+    # cooccurance_matrix = cooccurance_matrix / cooccurance_matrix.sum(axis=1, keepdims=True)
+    # We want absolute frequencies
+    gating_matrix = cooccurance_matrix / n_elems
+    # Set diagonal to 1
+    np.fill_diagonal(gating_matrix, 1)
+    return gating_matrix

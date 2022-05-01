@@ -4,6 +4,14 @@ import os
 import csv
 import PIL
 import numpy as np
+import logging
+from utils import create_gating_matrix
+import pandas as pd
+
+logging.basicConfig(filename="./logs", filemode='w', format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 CELEBA_LABELS = ['5_o_Clock_Shadow', 'Arched_Eyebrows','Attractive','Bags_Under_Eyes','Bald','Bangs','Big_Lips',
                  'Big_Nose','Black_Hair','Blond_Hair','Blurry','Brown_Hair','Bushy_Eyebrows', 'Chubby', 'Double_Chin',
@@ -93,6 +101,7 @@ class CelebAReader:
         filename: str,
         header: Optional[int] = None,
     ) -> CSV:
+
         with open(os.path.join(self.root, filename)) as csv_file:
             data = list(csv.reader(csv_file, delimiter=" ", skipinitialspace=True))
 
@@ -113,6 +122,7 @@ class CelebAReader:
 
         # Filter data to only include the labels we want
         data_np = data_np[:, self.sub_label_inds]
+        headers = ['image_id'] + CELEBA_EASY_LABELS
 
         return CSV(headers, indices, data_np)
 
@@ -134,6 +144,37 @@ class CelebAReader:
                                   self.attr.data[self.split_map["train"] + self.split_map["valid"]:])
         return cached_data
 
+    def set_gating_prob(self, cached_data):
+        # Load the gating matrix if it exists
+        if os.path.exists(os.path.join(self.root, "gating_matrix_{}.npy".format(self.sup_frac))):
+            logger.info("Loading gating matrix from {}".format(os.path.join(self.root, "gating_matrix_{}.npy".format(self.sup_frac))))
+            mu = np.load(os.path.join(self.root, "gating_matrix_{}.npy".format(self.sup_frac)))
+            self.init_gating_prob = mu
+        else:
+            logger.info("No gating matrix found, initializing...")
+            if self.sup_frac == 0.0:
+                mu = np.ones((len(CELEBA_EASY_LABELS), len(CELEBA_EASY_LABELS)))/2.0
+                np.fill_diagonal(mu, 1.)
+            else:
+                sup = cached_data["sup"].data
+                valid = cached_data["valid"].data
+                # Merge the supervised and validation data
+                data = np.concatenate((sup, valid), axis=0)
+                where_one_x, where_one_y = np.nonzero(data)
+                cut_idx = np.flatnonzero(np.r_[True, where_one_x[1:] != where_one_x[:-1], True])
+                grouped_indices = [where_one_y[i:j] for i, j in zip(cut_idx[:-1], cut_idx[1:])]
+
+                mu = create_gating_matrix(grouped_indices, len(CELEBA_EASY_LABELS))
+            self.init_gating_prob = mu
+
+            # Save the gating matrix
+            np.save(os.path.join(self.root, "gating_matrix_{}.npy".format(self.sup_frac)), mu)
+            indexes = ["z{}".format(i+1) for i in range(len(CELEBA_EASY_LABELS))]
+            gating_df = pd.DataFrame(mu, index=indexes, columns=CELEBA_EASY_LABELS)
+            gating_df.to_csv(os.path.join(self.root, "gating_matrix_{}.csv".format(self.sup_frac)))
+
+            logger.info("Gating matrix saved to {}".format(os.path.join(self.root, "gating_matrix_{}.npy".format(self.sup_frac))))
+
     def setup_data_loaders(self):
         if self.sup_frac == 0.0:
             modes = ["unsup", "test"]
@@ -143,6 +184,10 @@ class CelebAReader:
             modes = ["unsup", "test", "sup", "valid"]
 
         cached_data = self.load_split_data()
+
+        # Set the gating matrix
+        self.set_gating_prob(cached_data)
+
         loaders = {}
         for mode in modes:
             loaders[mode] = DataLoader(os.path.join(self.root, 'img_align_celeba'), cached_data[mode],
@@ -153,7 +198,7 @@ class CelebAReader:
 
 def do_test():
     ROOT = "./data"
-    reader = CelebAReader(ROOT, 0.1, 16)
+    reader = CelebAReader(ROOT, 0.0, 16)
     loaders = reader.setup_data_loaders()
     test_iterator = iter(loaders["test"].step())
     X, y = next(test_iterator)

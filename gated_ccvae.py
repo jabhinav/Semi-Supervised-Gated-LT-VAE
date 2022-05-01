@@ -1,19 +1,22 @@
+import json
 import os
 import sys
-
+import logging
 import numpy as np
-import argparse
 import tensorflow as tf
 from tqdm import tqdm
 from utils_data import CelebAReader, CELEBA_LABELS, CELEBA_EASY_LABELS
-from keras.layers import Dense, Flatten, Add, Conv2D, Reshape, Conv2DTranspose
-from utils import get_transn_loss, multi_sample_normal_np, get_gaussian_kl_div, img_log_likelihood
+from keras.layers import Dense, Flatten, Conv2D, Reshape, Conv2DTranspose
+from utils import get_gaussian_kl_div, img_log_likelihood, get_gates
+from configs import get_config
+import pandas as pd
 
 from tensorflow_probability.python.distributions import Categorical, Normal, Bernoulli
 
-global file_txt_results_path
-file_txt_results_path = '/Users/apple/Desktop/PhDCoursework/COMP559/Project/code/results.txt'
-# file_txt_results_path = os.path.join(os.getcwd(), 'results.txt')
+logging.basicConfig(filename="./logs", filemode='w', format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class Encoder(tf.keras.Model):
@@ -140,7 +143,7 @@ class Conditional_Prior(tf.keras.Model):
 
 
 class CCVAE(tf.keras.Model):
-    def __init__(self, z_dim, z_classify, y_dim):
+    def __init__(self, z_dim, z_classify, y_dim, train_config):
         super(CCVAE, self).__init__()
         # # ------------------------------------------ Model Declaration ------------------------------------------ # #
         self.z_dim = z_dim
@@ -156,9 +159,25 @@ class CCVAE(tf.keras.Model):
         # Conditional Prior to obtain Prior probability of z given y (Originally it was N(0, I))
         self.cond_prior = Conditional_Prior(z_classify)
 
-        # Gating Parameters - Declare a tensor of variable parameters
-        self.mu_init = tf.constant(0.5, shape=(z_classify, y_dim))
-        self.mu = tf.Variable(initial_value=self.mu_init, trainable=True)
+        self.initialise_mu(train_config)
+
+    def initialise_mu(self, train_config):
+        if train_config['gate_type'] == 'learnable':
+            mu_init = train_config['mu_init']
+            mu_init = tf.constant(mu_init)
+            self.mu = tf.Variable(initial_value=mu_init, trainable=True)
+        elif train_config['gate_type'] == 'fixed' and train_config['gate_subtype'] == 'inferred':
+            mu_init = train_config['mu_init']
+            mu_init = tf.constant(mu_init)
+            self.mu = tf.Variable(initial_value=mu_init, trainable=False)
+        elif train_config['gate_type'] == 'fixed' and train_config['gate_subtype'] == 'one-one':
+            # Create a diagonal matrix of size z_classify x y_dim
+            mu_init = tf.eye(self.z_classify, self.y_dim)
+            mu_init = tf.constant(mu_init)
+            self.mu = tf.Variable(initial_value=mu_init, trainable=False)
+        else:
+            raise ValueError('Invalid gate type/subtype: {}/{}'.format(train_config['gate_type'],
+                                                                       train_config['gate_subtype']))
 
     def sample_gumbel_tf(self, shape, eps=1e-20):
         U = tf.random.uniform(shape, minval=0, maxval=1)
@@ -220,8 +239,7 @@ class MyModel:
         self.z_classify = z_classify
         self.z_style = z_dim - z_classify
         self.y_dim = y_dim
-        print("Input Shape:", ip_shape, " Latent Dim (z_classify = {}): ".format(z_classify), z_dim, " Label Dim:", y_dim,
-              file=open(file_txt_results_path, 'a'))
+        logger.info("Input Shape: {}, Latent Dim (z_classify = {}): {}, Label Dim: {}".format(ip_shape, z_classify, z_dim, y_dim))
 
         # Parameters
         self.supervision = supervision
@@ -237,17 +255,16 @@ class MyModel:
         self.gating_sampler_temp = self.train_config['gating_init_temp']
 
         # To avoid unintended behaviours when variables declared outside the scope of tf.function are modified because
-        # their inital value will be used when tf.function traces the computation graph, in order to make sure that its
+        # their initial value will be used when tf.function traces the computation graph, in order to make sure that its
         # updated value is used either pass it as an arg to the function or declare it as a variable whose value can
         # then be changed outside using var.assign which will reflect automatically inside the computation graph
-        # self.p_Y = tf.Variable(1/y_dim, dtype=tf.float32)
         self.p_Y = tf.Variable(np.ones([1, len(CELEBA_EASY_LABELS)]) / 2., dtype=tf.float32, trainable=False)
 
-        self.model = CCVAE(z_dim, z_classify, y_dim)
+        self.model = CCVAE(z_dim, z_classify, y_dim, train_config)
         self.optimiser = tf.keras.optimizers.Adam(self.lr)
 
     def load_model(self,  param_dir, model_id):
-        model = CCVAE(self.z_dim, self.z_classify, self.y_dim)
+        model = CCVAE(self.z_dim, self.z_classify, self.y_dim, self.train_config)
 
         # BUILD First
         _ = model.encoder(np.ones([1, *self.ip_shape]))
@@ -261,8 +278,10 @@ class MyModel:
         model.cond_prior.load_weights(os.path.join(param_dir, "cond_prior_{}.h5".format(model_id)))
 
         # Load gating parameters. Hacky way to do it. Override the value of the variables (not trainable)
-        mu_init = np.loadtxt(os.path.join(param_dir, "gating_prob_{}.txt".format(model_id)))
-        model.mu = tf.Variable(initial_value=mu_init, trainable=False)
+        if self.train_config['gate_type'] == 'learnable':
+            mu_init = np.load(os.path.join(param_dir, "learned_gating_matrix_{}.npy".format(model_id)))
+            # Load the mu_init into the model's variables
+            model.mu = tf.Variable(initial_value=mu_init, trainable=True)
 
         return model
 
@@ -294,8 +313,8 @@ class MyModel:
 
         # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
         c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
-        if tf.math.reduce_any(tf.math.is_nan(c)):
-            raise ValueError("c is nan")
+        # if tf.math.reduce_any(tf.math.is_nan(c)):
+        #     raise ValueError("c is nan")
 
         # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
         # z_classify_tiled has shape [batch, z_classify, y_dim]
@@ -339,6 +358,7 @@ class MyModel:
 
         # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
         c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
+
 
         # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
         # z_classify_tiled has shape [batch, z_classify, y_dim]
@@ -388,13 +408,6 @@ class MyModel:
 
         return loss
 
-    # # # IMPORTANT
-    # tf.function wraps the function for tf's graph computation [efficient, fast, portable].
-    # It applies to a function and all other functions it calls.
-    # No need for decorating fns that are called from inside train_step
-    # # TIP
-    # Include as much computation as possible under a tf.function to maximize the performance gain.
-    # For example, decorate a whole training step or the entire training loop.
     @tf.function
     def train_step(self, x, y, supervised):
         with tf.GradientTape() as tape:
@@ -413,7 +426,8 @@ class MyModel:
         for epoch in range(0, self.train_config['n_epochs']):
 
             # Update the gating parameter of the network
-            self.gating_sampler_temp = 0.99 ** epoch
+            if self.train_config['gate_type'] == 'learnable':
+                self.gating_sampler_temp = 0.99 ** epoch
 
             # # # compute number of batches for an epoch
             if self.train_config['perc_supervision'] == 1.0:  # fully supervised
@@ -460,10 +474,10 @@ class MyModel:
 
                     if is_supervised:
                         sup_loss = self.train_step(xs, ys, supervised=True)
-                        epoch_losses_sup += sup_loss.numpy()
+                        # epoch_losses_sup += sup_loss.numpy()
                     else:
                         unsup_loss = self.train_step(xs, ys, supervised=False)
-                        epoch_losses_unsup += unsup_loss.numpy()
+                        # epoch_losses_unsup += unsup_loss.numpy()
 
                     pbar.refresh()
                     pbar.set_description("Iteration: {}, Epoch: {}".format(i + 1, epoch + 1))
@@ -475,26 +489,35 @@ class MyModel:
             else:
                 validation_accuracy = -np.inf
 
-            print("[Epoch %03d] Sup Loss %.3f, Unsup Loss %.3f, Val Acc %.3f" % (epoch, epoch_losses_sup, epoch_losses_unsup, validation_accuracy), file=open(file_txt_results_path, 'a'))
+            logger.info("[Epoch %03d] Val Acc %.3f" % (epoch, validation_accuracy))
 
             if validation_accuracy > best_val_acc:
+                logger.info("Saving best model...")
                 best_val_acc = validation_accuracy
                 self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_best.h5"), overwrite=True)
                 self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_best.h5"), overwrite=True)
                 self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_best.h5"), overwrite=True)
                 self.model.classifier.save_weights(os.path.join(param_dir, "classifier_best.h5"), overwrite=True)
-                np.savetxt(os.path.join(param_dir, "gating_prob_best.txt"), self.model.mu.numpy())
+                if self.train_config['gate_type'] == 'learnable':
+                    np.save(os.path.join(param_dir, "learned_gating_matrix_best.npy"), self.model.mu.numpy())
+
+                    # Save in Pandas format
+                    indexes = ["z{}".format(i + 1) for i in range(len(CELEBA_EASY_LABELS))]
+                    gating_df = pd.DataFrame(self.model.mu.numpy(), index=indexes, columns=CELEBA_EASY_LABELS)
+                    gating_df.to_csv(os.path.join(param_dir, "learned_gating_matrix_best.csv"))
 
         # Save the model
+        logger.info("Saving last model...")
         self.model.encoder.save_weights(os.path.join(param_dir, "encoder_model_last.h5"), overwrite=True)
         self.model.decoder.save_weights(os.path.join(param_dir, "decoder_model_last.h5"), overwrite=True)
         self.model.cond_prior.save_weights(os.path.join(param_dir, "cond_prior_last.h5"), overwrite=True)
         self.model.classifier.save_weights(os.path.join(param_dir, "classifier_last.h5"), overwrite=True)
-        np.savetxt(os.path.join(param_dir, "gating_prob_last.txt"), self.model.mu.numpy())
-
-        # # Get the Test Accuracy
-        # test_accuracy = self.accuracy(data_loaders['test'])
-        # print("Test Accuracy (last model): %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
+        if self.train_config['gate_type'] == 'learnable':
+            np.save(os.path.join(param_dir, "learned_gating_matrix_last.npy"), self.model.mu.numpy())
+            # Save in Pandas format
+            indexes = ["z{}".format(i + 1) for i in range(len(CELEBA_EASY_LABELS))]
+            gating_df = pd.DataFrame(self.model.mu.numpy(), index=indexes, columns=CELEBA_EASY_LABELS)
+            gating_df.to_csv(os.path.join(param_dir, "learned_gating_matrix_last.csv"))
 
     def classifier_accuracy(self, x, y):
         # INFERENCE: Compute the approximate posterior q(z|x)
@@ -535,8 +558,7 @@ class MyModel:
 
 def run(args, sup=0.0):
 
-    print("\n\n---------------------------------- Supervision {} ----------------------------------".format(args.sup),
-          file=open(file_txt_results_path, 'a'))
+    logger.info("\n\n---------------------------------- Supervision {} ----------------------------------".format(sup))
 
     train_config = {
         "n_epochs": args.n,
@@ -544,12 +566,17 @@ def run(args, sup=0.0):
         "num_iters": 10,
         "lr": args.lr,
         "init_temp": 0.1,
-        'gating_init_temp': 1.0,
-        "anneal_rate": 0.00003,
+        "anneal_rate": args.anneal_rate,
         'perc_supervision': sup,
         'z_dim': args.z_dim,
         'n_classes': len(CELEBA_EASY_LABELS),
+        'gate_type': args.gate_type,
+        'gate_subtype': args.gate_subtype,
+        'gating_init_temp': 1.0 if args.gate_type == 'learnable' else 0.1,
     }
+
+    # Dump the config into log file
+    logger.info(json.dumps(train_config, indent=4))
 
     im_shape = (64, 64, 3)
 
@@ -568,9 +595,12 @@ def run(args, sup=0.0):
     fig_path = os.path.join(model_dir, '{}_loss'.format('CCVAE'))
 
     # ################################################ Load Data ################################################ #
-    print("Loading data", file=open(file_txt_results_path, 'a'))
+    logger.info("Loading data...")
     reader = CelebAReader(data_dir, train_config['perc_supervision'], train_config['batch_size'])
     loaders = reader.setup_data_loaders()
+
+    mu = reader.init_gating_prob
+    train_config['mu_init'] = mu
 
     # ################################################ Train Model ################################################ #
     if train_config['perc_supervision'] == 1.:
@@ -585,45 +615,27 @@ def run(args, sup=0.0):
                             supervision=train_config['perc_supervision'], train_config=train_config)
     if not os.path.exists(param_dir):
         os.makedirs(param_dir)
+
+    if args.do_train:
+        logger.info("Training model..")
         ssvae_learner.train(loaders, param_dir, fig_path)
-        print("Finish.", file=open(file_txt_results_path, 'a'))
+        logger.info("Finish Training")
     else:
-        print("Model already exists! Skipping training", file=open(file_txt_results_path, 'a'))
+        logger.info("Skipping training")
 
     # ################################################ Test Model ################################################ #
-    print("Testing model", file=open(file_txt_results_path, 'a'))
-    ssvae_learner.load_model(param_dir, 'best')
-    test_accuracy = ssvae_learner.accuracy(loaders['test'])
-    print("Test Accuracy (last model): %.3f" % test_accuracy, file=open(file_txt_results_path, 'a'))
-
-
-def parser_args(parser):
-    # parser.add_argument('--cuda', action='store_true',
-    #                     help="use GPU(s) to speed up training")
-    parser.add_argument('-n', default=5, type=int,
-                        help="number of epochs to run")
-    parser.add_argument('-sup', default=1.0,
-                        type=float, help="supervised fractional amount of the data i.e. "
-                                         "how many of the images have supervised labels."
-                                         "Should be a multiple of train_size / batch_size")
-    parser.add_argument('--z_dim', default=45, type=int,
-                        help="size of the tensor representing the latent variable z "
-                             "variable (handwriting style for our MNIST dataset)")
-    parser.add_argument('-lr', default=1e-4, type=float,
-                        help="learning rate for Adam optimizer")
-    parser.add_argument('-bs', default=256, type=int,
-                        help="number of images (and labels) to be considered in a batch")
-    parser.add_argument('--data_dir', type=str, default='./',
-                        help='Data path')
-    return parser
+    if args.do_test:
+        logger.info("Testing best model..")
+        ssvae_learner.load_model(param_dir, 'best')
+        test_accuracy = ssvae_learner.accuracy(loaders['test'])
+        logger.info("Test Accuracy (best model): %.3f" % test_accuracy)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser = parser_args(parser)
-    args = parser.parse_args()
 
-    sup = [1.0, 0.2, 0.06]
+    args = get_config()
+
+    # sup = [1.0, 0.5, 0.1]
     sup = [1.0]
     for s in sup:
         run(args, sup=s)
