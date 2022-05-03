@@ -1,0 +1,250 @@
+05/03/2022 01:30:54 - INFO - __main__ -   
+
+---------------------------------- Supervision 0.5 ----------------------------------
+05/03/2022 01:30:54 - INFO - __main__ -   {
+    "n_epochs": 75,
+    "batch_size": 256,
+    "num_iters": 10,
+    "lr": 0.0001,
+    "init_temp": 0.1,
+    "anneal_rate": 3e-05,
+    "perc_supervision": 0.5,
+    "z_dim": 45,
+    "n_classes": 18,
+    "gate_type": "fixed",
+    "gate_subtype": "inferred",
+    "gating_init_temp": 0.3,
+    "gating_reg": 0.2
+}
+05/03/2022 01:30:54 - INFO - __main__ -   Loading data...
+05/03/2022 01:30:58 - INFO - utils_data -   Loading gating matrix from ./data/gating_matrix_0.5.npy
+05/03/2022 01:30:59 - INFO - __main__ -   Input Shape: (64, 64, 3), Latent Dim (z_classify = 18): 45, Label Dim: 18
+05/03/2022 01:31:04 - INFO - root -   Initialising mu with fixed value
+05/03/2022 01:31:04 - INFO - __main__ -   Training model..
+05/03/2022 01:35:11 - INFO - __main__ -   [Epoch 000] Val Acc 0.599
+05/03/2022 01:35:11 - INFO - __main__ -   Saving best model...
+05/03/2022 01:38:57 - INFO - __main__ -   [Epoch 001] Val Acc 0.610
+05/03/2022 01:38:57 - INFO - __main__ -   Saving best model...
+05/03/2022 01:42:42 - INFO - __main__ -   [Epoch 002] Val Acc 0.610
+05/03/2022 01:42:42 - INFO - __main__ -   Saving best model...
+05/03/2022 01:46:23 - INFO - __main__ -   [Epoch 003] Val Acc 0.618
+05/03/2022 01:46:23 - INFO - __main__ -   Saving best model...
+05/03/2022 01:50:09 - INFO - __main__ -   [Epoch 004] Val Acc 0.625
+05/03/2022 01:50:09 - INFO - __main__ -   Saving best model...
+05/03/2022 01:53:54 - INFO - __main__ -   [Epoch 005] Val Acc 0.622
+05/03/2022 01:57:38 - INFO - __main__ -   [Epoch 006] Val Acc 0.627
+05/03/2022 01:57:38 - INFO - __main__ -   Saving best model...
+05/03/2022 02:01:24 - INFO - __main__ -   [Epoch 007] Val Acc 0.617
+05/03/2022 02:05:10 - INFO - __main__ -   [Epoch 008] Val Acc 0.627
+05/03/2022 02:05:10 - INFO - __main__ -   Saving best model...
+05/03/2022 02:08:53 - INFO - __main__ -   [Epoch 009] Val Acc 0.621
+05/03/2022 02:12:39 - INFO - __main__ -   [Epoch 010] Val Acc 0.631
+05/03/2022 02:12:39 - INFO - __main__ -   Saving best model...
+05/03/2022 02:16:25 - INFO - __main__ -   [Epoch 011] Val Acc 0.635
+05/03/2022 02:16:25 - INFO - __main__ -   Saving best model...
+05/03/2022 02:20:11 - INFO - __main__ -   [Epoch 012] Val Acc 0.637
+05/03/2022 02:20:11 - INFO - __main__ -   Saving best model...
+05/03/2022 02:23:56 - INFO - __main__ -   [Epoch 013] Val Acc 0.638
+05/03/2022 02:23:56 - INFO - __main__ -   Saving best model...
+05/03/2022 02:27:43 - INFO - __main__ -   [Epoch 014] Val Acc 0.641
+05/03/2022 02:27:43 - INFO - __main__ -   Saving best model...
+05/03/2022 02:31:28 - INFO - __main__ -   [Epoch 015] Val Acc 0.643
+05/03/2022 02:31:28 - INFO - __main__ -   Saving best model...
+05/03/2022 02:35:13 - INFO - __main__ -   [Epoch 016] Val Acc 0.642
+05/03/2022 02:38:57 - INFO - __main__ -   [Epoch 017] Val Acc 0.636
+05/03/2022 02:42:41 - INFO - __main__ -   [Epoch 018] Val Acc 0.643
+05/03/2022 02:42:41 - INFO - __main__ -   Saving best model...
+05/03/2022 02:46:26 - INFO - __main__ -   [Epoch 019] Val Acc 0.645
+05/03/2022 02:46:26 - INFO - __main__ -   Saving best model...
+05/03/2022 02:50:11 - INFO - __main__ -   [Epoch 020] Val Acc 0.648
+05/03/2022 02:50:11 - INFO - __main__ -   Saving best model...
+05/03/2022 02:53:56 - INFO - __main__ -   [Epoch 021] Val Acc 0.653
+05/03/2022 02:53:56 - INFO - __main__ -   Saving best model...
+05/03/2022 02:57:40 - INFO - __main__ -   [Epoch 022] Val Acc 0.660
+05/03/2022 02:57:40 - INFO - __main__ -   Saving best model...
+05/03/2022 03:01:25 - INFO - __main__ -   [Epoch 023] Val Acc 0.649
+05/03/2022 03:05:10 - INFO - __main__ -   [Epoch 024] Val Acc 0.661
+05/03/2022 03:05:10 - INFO - __main__ -   Saving best model...
+05/03/2022 03:08:54 - INFO - __main__ -   [Epoch 025] Val Acc 0.663
+05/03/2022 03:08:54 - INFO - __main__ -   Saving best model...
+05/03/2022 03:12:38 - INFO - __main__ -   [Epoch 026] Val Acc 0.661
+05/03/2022 03:16:22 - INFO - __main__ -   [Epoch 027] Val Acc 0.667
+05/03/2022 03:16:22 - INFO - __main__ -   Saving best model...
+05/03/2022 03:20:05 - INFO - __main__ -   [Epoch 028] Val Acc 0.652
+05/03/2022 03:23:49 - INFO - __main__ -   [Epoch 029] Val Acc 0.658
+05/03/2022 03:27:32 - INFO - __main__ -   [Epoch 030] Val Acc 0.660
+05/03/2022 03:31:17 - INFO - __main__ -   [Epoch 031] Val Acc 0.653
+05/03/2022 03:35:02 - INFO - __main__ -   [Epoch 032] Val Acc 0.653
+05/03/2022 03:38:46 - INFO - __main__ -   [Epoch 033] Val Acc 0.667
+05/03/2022 03:42:32 - INFO - __main__ -   [Epoch 034] Val Acc 0.663
+05/03/2022 03:46:16 - INFO - __main__ -   [Epoch 035] Val Acc 0.650
+05/03/2022 03:50:00 - INFO - __main__ -   [Epoch 036] Val Acc 0.663
+05/03/2022 03:53:44 - INFO - __main__ -   [Epoch 037] Val Acc 0.655
+05/03/2022 03:57:27 - INFO - __main__ -   [Epoch 038] Val Acc 0.663
+05/03/2022 04:01:12 - INFO - __main__ -   [Epoch 039] Val Acc 0.664
+05/03/2022 04:04:55 - INFO - __main__ -   [Epoch 040] Val Acc 0.656
+05/03/2022 04:08:39 - INFO - __main__ -   [Epoch 041] Val Acc 0.649
+05/03/2022 04:12:22 - INFO - __main__ -   [Epoch 042] Val Acc 0.665
+05/03/2022 04:16:08 - INFO - __main__ -   [Epoch 043] Val Acc 0.662
+05/03/2022 04:19:52 - INFO - __main__ -   [Epoch 044] Val Acc 0.659
+05/03/2022 04:23:35 - INFO - __main__ -   [Epoch 045] Val Acc 0.653
+05/03/2022 04:27:18 - INFO - __main__ -   [Epoch 046] Val Acc 0.657
+05/03/2022 04:31:02 - INFO - __main__ -   [Epoch 047] Val Acc 0.659
+05/03/2022 04:34:45 - INFO - __main__ -   [Epoch 048] Val Acc 0.659
+05/03/2022 04:38:27 - INFO - __main__ -   [Epoch 049] Val Acc 0.683
+05/03/2022 04:38:27 - INFO - __main__ -   Saving best model...
+05/03/2022 04:42:10 - INFO - __main__ -   [Epoch 050] Val Acc 0.668
+05/03/2022 04:45:52 - INFO - __main__ -   [Epoch 051] Val Acc 0.688
+05/03/2022 04:45:52 - INFO - __main__ -   Saving best model...
+05/03/2022 04:49:34 - INFO - __main__ -   [Epoch 052] Val Acc 0.700
+05/03/2022 04:49:34 - INFO - __main__ -   Saving best model...
+05/03/2022 04:53:17 - INFO - __main__ -   [Epoch 053] Val Acc 0.703
+05/03/2022 04:53:17 - INFO - __main__ -   Saving best model...
+05/03/2022 04:56:59 - INFO - __main__ -   [Epoch 054] Val Acc 0.703
+05/03/2022 05:00:42 - INFO - __main__ -   [Epoch 055] Val Acc 0.705
+05/03/2022 05:00:42 - INFO - __main__ -   Saving best model...
+05/03/2022 05:04:26 - INFO - __main__ -   [Epoch 056] Val Acc 0.712
+05/03/2022 05:04:26 - INFO - __main__ -   Saving best model...
+05/03/2022 05:08:09 - INFO - __main__ -   [Epoch 057] Val Acc 0.708
+05/03/2022 05:11:53 - INFO - __main__ -   [Epoch 058] Val Acc 0.705
+05/03/2022 05:15:36 - INFO - __main__ -   [Epoch 059] Val Acc 0.721
+05/03/2022 05:15:36 - INFO - __main__ -   Saving best model...
+05/03/2022 05:19:18 - INFO - __main__ -   [Epoch 060] Val Acc 0.716
+05/03/2022 05:23:02 - INFO - __main__ -   [Epoch 061] Val Acc 0.709
+05/03/2022 05:26:45 - INFO - __main__ -   [Epoch 062] Val Acc 0.716
+05/03/2022 05:30:29 - INFO - __main__ -   [Epoch 063] Val Acc 0.732
+05/03/2022 05:30:29 - INFO - __main__ -   Saving best model...
+05/03/2022 05:34:13 - INFO - __main__ -   [Epoch 064] Val Acc 0.726
+05/03/2022 05:37:58 - INFO - __main__ -   [Epoch 065] Val Acc 0.739
+05/03/2022 05:37:58 - INFO - __main__ -   Saving best model...
+05/03/2022 05:41:42 - INFO - __main__ -   [Epoch 066] Val Acc 0.734
+05/03/2022 05:45:27 - INFO - __main__ -   [Epoch 067] Val Acc 0.743
+05/03/2022 05:45:27 - INFO - __main__ -   Saving best model...
+05/03/2022 05:49:12 - INFO - __main__ -   [Epoch 068] Val Acc 0.741
+05/03/2022 05:52:57 - INFO - __main__ -   [Epoch 069] Val Acc 0.750
+05/03/2022 05:52:57 - INFO - __main__ -   Saving best model...
+05/03/2022 05:56:42 - INFO - __main__ -   [Epoch 070] Val Acc 0.760
+05/03/2022 05:56:42 - INFO - __main__ -   Saving best model...
+05/03/2022 06:00:27 - INFO - __main__ -   [Epoch 071] Val Acc 0.756
+05/03/2022 06:04:13 - INFO - __main__ -   [Epoch 072] Val Acc 0.753
+05/03/2022 06:07:58 - INFO - __main__ -   [Epoch 073] Val Acc 0.752
+05/03/2022 06:11:43 - INFO - __main__ -   [Epoch 074] Val Acc 0.756
+05/03/2022 06:11:43 - INFO - __main__ -   Saving last model...
+05/03/2022 06:11:43 - INFO - __main__ -   Finish Training
+05/03/2022 06:11:43 - INFO - __main__ -   Testing best model..
+05/03/2022 06:11:43 - INFO - root -   Initialising mu with fixed value
+05/03/2022 06:12:05 - INFO - __main__ -   Test Accuracy (best model): 0.746
+05/03/2022 06:12:06 - INFO - __main__ -   
+
+---------------------------------- Supervision 0.2 ----------------------------------
+05/03/2022 06:12:06 - INFO - __main__ -   {
+    "n_epochs": 75,
+    "batch_size": 256,
+    "num_iters": 10,
+    "lr": 0.0001,
+    "init_temp": 0.1,
+    "anneal_rate": 3e-05,
+    "perc_supervision": 0.2,
+    "z_dim": 45,
+    "n_classes": 18,
+    "gate_type": "fixed",
+    "gate_subtype": "inferred",
+    "gating_init_temp": 0.3,
+    "gating_reg": 0.2
+}
+05/03/2022 06:12:06 - INFO - __main__ -   Loading data...
+05/03/2022 06:12:10 - INFO - utils_data -   Loading gating matrix from ./data/gating_matrix_0.2.npy
+05/03/2022 06:12:11 - INFO - __main__ -   Input Shape: (64, 64, 3), Latent Dim (z_classify = 18): 45, Label Dim: 18
+05/03/2022 06:12:11 - INFO - root -   Initialising mu with fixed value
+05/03/2022 06:12:11 - INFO - __main__ -   Training model..
+05/03/2022 06:16:03 - INFO - __main__ -   [Epoch 000] Val Acc 0.604
+05/03/2022 06:16:03 - INFO - __main__ -   Saving best model...
+05/03/2022 06:19:40 - INFO - __main__ -   [Epoch 001] Val Acc 0.609
+05/03/2022 06:19:40 - INFO - __main__ -   Saving best model...
+05/03/2022 06:23:17 - INFO - __main__ -   [Epoch 002] Val Acc 0.608
+05/03/2022 06:26:51 - INFO - __main__ -   [Epoch 003] Val Acc 0.613
+05/03/2022 06:26:51 - INFO - __main__ -   Saving best model...
+05/03/2022 06:30:26 - INFO - __main__ -   [Epoch 004] Val Acc 0.606
+05/03/2022 06:34:02 - INFO - __main__ -   [Epoch 005] Val Acc 0.580
+05/03/2022 06:37:36 - INFO - __main__ -   [Epoch 006] Val Acc 0.577
+05/03/2022 06:41:10 - INFO - __main__ -   [Epoch 007] Val Acc 0.581
+05/03/2022 06:44:45 - INFO - __main__ -   [Epoch 008] Val Acc 0.583
+05/03/2022 06:48:20 - INFO - __main__ -   [Epoch 009] Val Acc 0.585
+05/03/2022 06:51:53 - INFO - __main__ -   [Epoch 010] Val Acc 0.587
+05/03/2022 06:55:28 - INFO - __main__ -   [Epoch 011] Val Acc 0.590
+05/03/2022 06:59:02 - INFO - __main__ -   [Epoch 012] Val Acc 0.597
+05/03/2022 07:02:35 - INFO - __main__ -   [Epoch 013] Val Acc 0.594
+05/03/2022 07:06:10 - INFO - __main__ -   [Epoch 014] Val Acc 0.598
+05/03/2022 07:09:44 - INFO - __main__ -   [Epoch 015] Val Acc 0.605
+05/03/2022 07:13:19 - INFO - __main__ -   [Epoch 016] Val Acc 0.608
+05/03/2022 07:16:53 - INFO - __main__ -   [Epoch 017] Val Acc 0.605
+05/03/2022 07:20:29 - INFO - __main__ -   [Epoch 018] Val Acc 0.608
+05/03/2022 07:24:03 - INFO - __main__ -   [Epoch 019] Val Acc 0.617
+05/03/2022 07:24:03 - INFO - __main__ -   Saving best model...
+05/03/2022 07:27:38 - INFO - __main__ -   [Epoch 020] Val Acc 0.617
+05/03/2022 07:31:13 - INFO - __main__ -   [Epoch 021] Val Acc 0.620
+05/03/2022 07:31:13 - INFO - __main__ -   Saving best model...
+05/03/2022 07:34:47 - INFO - __main__ -   [Epoch 022] Val Acc 0.618
+05/03/2022 07:38:21 - INFO - __main__ -   [Epoch 023] Val Acc 0.620
+05/03/2022 07:38:21 - INFO - __main__ -   Saving best model...
+05/03/2022 07:41:56 - INFO - __main__ -   [Epoch 024] Val Acc 0.628
+05/03/2022 07:41:56 - INFO - __main__ -   Saving best model...
+05/03/2022 07:45:29 - INFO - __main__ -   [Epoch 025] Val Acc 0.627
+05/03/2022 07:49:04 - INFO - __main__ -   [Epoch 026] Val Acc 0.632
+05/03/2022 07:49:04 - INFO - __main__ -   Saving best model...
+05/03/2022 07:52:45 - INFO - __main__ -   [Epoch 027] Val Acc 0.630
+05/03/2022 07:56:25 - INFO - __main__ -   [Epoch 028] Val Acc 0.628
+05/03/2022 08:00:04 - INFO - __main__ -   [Epoch 029] Val Acc 0.624
+05/03/2022 08:03:43 - INFO - __main__ -   [Epoch 030] Val Acc 0.624
+05/03/2022 08:07:22 - INFO - __main__ -   [Epoch 031] Val Acc 0.621
+05/03/2022 08:11:01 - INFO - __main__ -   [Epoch 032] Val Acc 0.608
+05/03/2022 08:14:40 - INFO - __main__ -   [Epoch 033] Val Acc 0.619
+05/03/2022 08:18:17 - INFO - __main__ -   [Epoch 034] Val Acc 0.615
+05/03/2022 08:21:55 - INFO - __main__ -   [Epoch 035] Val Acc 0.612
+05/03/2022 08:25:34 - INFO - __main__ -   [Epoch 036] Val Acc 0.616
+05/03/2022 08:29:10 - INFO - __main__ -   [Epoch 037] Val Acc 0.610
+05/03/2022 08:32:46 - INFO - __main__ -   [Epoch 038] Val Acc 0.617
+05/03/2022 08:36:22 - INFO - __main__ -   [Epoch 039] Val Acc 0.615
+05/03/2022 08:39:58 - INFO - __main__ -   [Epoch 040] Val Acc 0.613
+05/03/2022 08:43:35 - INFO - __main__ -   [Epoch 041] Val Acc 0.616
+05/03/2022 08:47:13 - INFO - __main__ -   [Epoch 042] Val Acc 0.620
+05/03/2022 08:50:49 - INFO - __main__ -   [Epoch 043] Val Acc 0.616
+05/03/2022 08:54:26 - INFO - __main__ -   [Epoch 044] Val Acc 0.610
+05/03/2022 08:58:03 - INFO - __main__ -   [Epoch 045] Val Acc 0.620
+05/03/2022 09:01:40 - INFO - __main__ -   [Epoch 046] Val Acc 0.617
+05/03/2022 09:05:16 - INFO - __main__ -   [Epoch 047] Val Acc 0.613
+05/03/2022 09:08:52 - INFO - __main__ -   [Epoch 048] Val Acc 0.623
+05/03/2022 09:12:27 - INFO - __main__ -   [Epoch 049] Val Acc 0.618
+05/03/2022 09:16:03 - INFO - __main__ -   [Epoch 050] Val Acc 0.618
+05/03/2022 09:19:40 - INFO - __main__ -   [Epoch 051] Val Acc 0.623
+05/03/2022 09:23:15 - INFO - __main__ -   [Epoch 052] Val Acc 0.620
+05/03/2022 09:26:51 - INFO - __main__ -   [Epoch 053] Val Acc 0.615
+05/03/2022 09:30:28 - INFO - __main__ -   [Epoch 054] Val Acc 0.620
+05/03/2022 09:34:04 - INFO - __main__ -   [Epoch 055] Val Acc 0.618
+05/03/2022 09:37:41 - INFO - __main__ -   [Epoch 056] Val Acc 0.608
+05/03/2022 09:41:16 - INFO - __main__ -   [Epoch 057] Val Acc 0.615
+05/03/2022 09:44:51 - INFO - __main__ -   [Epoch 058] Val Acc 0.615
+05/03/2022 09:48:27 - INFO - __main__ -   [Epoch 059] Val Acc 0.624
+05/03/2022 09:52:02 - INFO - __main__ -   [Epoch 060] Val Acc 0.614
+05/03/2022 09:55:36 - INFO - __main__ -   [Epoch 061] Val Acc 0.628
+05/03/2022 09:59:11 - INFO - __main__ -   [Epoch 062] Val Acc 0.629
+05/03/2022 10:02:45 - INFO - __main__ -   [Epoch 063] Val Acc 0.621
+05/03/2022 10:06:19 - INFO - __main__ -   [Epoch 064] Val Acc 0.614
+05/03/2022 10:09:54 - INFO - __main__ -   [Epoch 065] Val Acc 0.637
+05/03/2022 10:09:54 - INFO - __main__ -   Saving best model...
+05/03/2022 10:13:31 - INFO - __main__ -   [Epoch 066] Val Acc 0.635
+05/03/2022 10:17:07 - INFO - __main__ -   [Epoch 067] Val Acc 0.629
+05/03/2022 10:20:43 - INFO - __main__ -   [Epoch 068] Val Acc 0.622
+05/03/2022 10:24:21 - INFO - __main__ -   [Epoch 069] Val Acc 0.623
+05/03/2022 10:27:58 - INFO - __main__ -   [Epoch 070] Val Acc 0.623
+05/03/2022 10:31:36 - INFO - __main__ -   [Epoch 071] Val Acc 0.652
+05/03/2022 10:31:36 - INFO - __main__ -   Saving best model...
+05/03/2022 10:35:13 - INFO - __main__ -   [Epoch 072] Val Acc 0.658
+05/03/2022 10:35:13 - INFO - __main__ -   Saving best model...
+05/03/2022 10:38:50 - INFO - __main__ -   [Epoch 073] Val Acc 0.646
+05/03/2022 10:42:27 - INFO - __main__ -   [Epoch 074] Val Acc 0.632
+05/03/2022 10:42:27 - INFO - __main__ -   Saving last model...
+05/03/2022 10:42:27 - INFO - __main__ -   Finish Training
+05/03/2022 10:42:27 - INFO - __main__ -   Testing best model..
+05/03/2022 10:42:27 - INFO - root -   Initialising mu with fixed value
+05/03/2022 10:42:50 - INFO - __main__ -   Test Accuracy (best model): 0.636

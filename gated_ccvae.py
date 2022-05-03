@@ -3,11 +3,12 @@ import os
 import sys
 import logging
 import numpy as np
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from tqdm import tqdm
 from utils_data import CelebAReader, CELEBA_LABELS, CELEBA_EASY_LABELS
-from keras.layers import Dense, Flatten, Conv2D, Reshape, Conv2DTranspose
 from utils import get_gaussian_kl_div, img_log_likelihood, get_gates
+from networks import *
 from configs import get_config
 import pandas as pd
 
@@ -17,129 +18,6 @@ logging.basicConfig(filename="./logs", filemode='w', format='%(asctime)s - %(lev
                     datefmt='%m/%d/%Y %H:%M:%S',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class Encoder(tf.keras.Model):
-    def __init__(self, z_dim, hidden_dim=256):
-        self.z_dim = z_dim
-        super(Encoder, self).__init__()
-        self.conv1 = Conv2D(filters=32, kernel_size=(4, 4), strides=(2, 2), padding='valid', activation='relu')
-        self.conv2 = Conv2D(filters=32, kernel_size=(4, 4), strides=(2, 2), padding='valid', activation='relu')
-        self.conv3 = Conv2D(filters=64, kernel_size=(4, 4), strides=(2, 2), padding='valid', activation='relu')
-        self.conv4 = Conv2D(filters=128, kernel_size=(4, 4), strides=(2, 2), padding='valid', activation='relu')
-        self.conv5 = Conv2D(filters=hidden_dim, kernel_size=(4, 4), strides=(1, 1), padding='valid', activation='relu')
-        self.flatten = Flatten()
-        self.locs_out = Dense(units=z_dim, activation=tf.nn.relu)
-        self.std_out = Dense(units=z_dim, activation=tf.nn.softplus)
-
-    def call(self, x):
-        h = tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='CONSTANT')
-        h = self.conv1(h)
-        h = tf.pad(h, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='CONSTANT')
-        h = self.conv2(h)
-        h = tf.pad(h, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='CONSTANT')
-        h = self.conv3(h)
-        h = tf.pad(h, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='CONSTANT')
-        h = self.conv4(h)
-        h = self.conv5(h)
-        h = self.flatten(h)
-        locs = self.locs_out(h)
-
-        scale = self.std_out(h)
-        scale = tf.clip_by_value(scale, clip_value_min=1e-3, clip_value_max=1e3)
-        # Note if returning sampled z as well, decorate sample_fn with @tf.function so that it gets saved in the
-        # computation graph and there is no need to implement it while testing or loading the model
-        return locs, scale
-
-
-class Decoder(tf.keras.Model):
-    def __init__(self, hidden_dim=256, *args, **kwargs):
-        super(Decoder, self).__init__()
-        self.fc1 = Dense(units=hidden_dim, activation=tf.nn.relu)
-        self.reshape = Reshape((1, 1, hidden_dim))
-        self.conv1t = Conv2DTranspose(filters=128, kernel_size=(4, 4), strides=(1, 1), padding='valid', activation='relu')
-        self.conv2t = Conv2DTranspose(filters=64, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')
-        self.conv3t = Conv2DTranspose(filters=32, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')
-        self.conv4t = Conv2DTranspose(filters=32, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')
-        self.conv5t = Conv2DTranspose(filters=3, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='sigmoid')
-
-    def call(self, z):
-        h = self.fc1(z)
-        h = self.reshape(h)
-        h = self.conv1t(h)
-        h = self.conv2t(h)
-        h = self.conv3t(h)
-        h = self.conv4t(h)
-        x = self.conv5t(h)
-        return x
-
-
-class MyInferenceLayer(tf.keras.layers.Layer):
-    def __init__(self, y_dim):
-        super(MyInferenceLayer, self).__init__()
-        self.y_dim = y_dim
-
-    def build(self, input_shape):
-        # Parameters of the model: W (z_dim*y_dim), b (y_dim,)
-        self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.y_dim), initializer='random_normal', trainable=True)
-        self.bias = self.add_weight(name='bias', shape=(self.y_dim,), initializer='random_normal', trainable=True)
-
-    def call(self, x):
-        # x is a tensor of shape (batch_size, z_dim, y_dim). We will broadcast W by multiplying with x, sum along z_dim and add bias
-        return tf.reduce_sum(x*self.kernel, axis=1) + self.bias
-
-
-class Classifier(tf.keras.Model):
-    def __init__(self, y_dim):
-        super(Classifier, self).__init__()
-        # Defining a dense layer will give many-to-one mapping from z to y. CCVAE used one-to-one mapping.
-        self.get_logits = MyInferenceLayer(y_dim)
-
-    def call(self, encodes_z, gates):
-        gated_z = encodes_z * gates
-        logits_y = self.get_logits(gated_z)
-        return logits_y
-
-
-class MyCondGenerationLayer(tf.keras.layers.Layer):
-    def __init__(self, z_dim, initializer=None):
-        super(MyCondGenerationLayer, self).__init__()
-        self.z_dim = z_dim
-        self.initializer = initializer
-
-    def build(self, input_shape):
-        # Parameters of the model: W (y_dim*z_dim)
-        if self.initializer == 'ones':
-            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='ones', trainable=True)
-        elif self.initializer == 'zeros':
-            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='zeros', trainable=True)
-        else:
-            self.kernel = self.add_weight(name='kernel', shape=(input_shape[1], self.z_dim), initializer='random_normal', trainable=True)
-
-    def call(self, x):
-        # x is a tensor of shape (batch_size, y_dim, z_dim). We will broadcast W by multiplying with x, sum along y_dim
-        return tf.reduce_sum(x*self.kernel, axis=1)
-
-
-class Conditional_Prior(tf.keras.Model):
-    def __init__(self, z_dim):
-        super(Conditional_Prior, self).__init__()
-        # Defining a dense layer will give many-to-one mapping from y to z. CCVAE used one-to-one mapping.
-        self.loc_true = MyCondGenerationLayer(z_dim, initializer='zeros')
-        self.loc_false = MyCondGenerationLayer(z_dim, initializer='zeros')
-        self.scale_true = MyCondGenerationLayer(z_dim, initializer='ones')
-        self.scale_false = MyCondGenerationLayer(z_dim, initializer='ones')
-
-    def call(self, y, c):
-        # Transpose c
-        c = tf.transpose(c)
-        locs = self.loc_true(y*c) + self.loc_false((1-y)*c)
-        scale = self.scale_true(y*c) + self.scale_false((1-y)*c)
-
-        # Apply softplus to scale and clamp to avoid numerical issues
-        scale = tf.nn.softplus(scale)
-        scale = tf.clip_by_value(scale, 1e-3, 1e3)
-        return locs, scale
 
 
 class CCVAE(tf.keras.Model):
@@ -163,12 +41,14 @@ class CCVAE(tf.keras.Model):
 
     def initialise_mu(self, train_config):
         if train_config['gate_type'] == 'learnable':
+            logging.info("Initialising mu with fixed value (learnable)")
             mu_init = train_config['mu_init']
-            mu_init = tf.constant(mu_init)
+            mu_init = tf.constant(mu_init, dtype=tf.float32)
             self.mu = tf.Variable(initial_value=mu_init, trainable=True)
         elif train_config['gate_type'] == 'fixed' and train_config['gate_subtype'] == 'inferred':
+            logging.info("Initialising mu with fixed value")
             mu_init = train_config['mu_init']
-            mu_init = tf.constant(mu_init)
+            mu_init = tf.constant(mu_init, dtype=tf.float32)
             self.mu = tf.Variable(initial_value=mu_init, trainable=False)
         elif train_config['gate_type'] == 'fixed' and train_config['gate_subtype'] == 'one-one':
             # Create a diagonal matrix of size z_classify x y_dim
@@ -219,7 +99,7 @@ class CCVAE(tf.keras.Model):
             samples.append(z)
         return samples
 
-    def sample_gating_parameter(self, mu, temperature, EPSILON=1e-30):
+    def sample_gating_parameter(self, mu, temperature, EPSILON=1e-20):
         mu = tf.clip_by_value(mu, clip_value_min=0.0, clip_value_max=1.0)
         eps1 = self.sample_gumbel_tf(tf.shape(mu))
         eps2 = self.sample_gumbel_tf(tf.shape(mu))
@@ -231,7 +111,7 @@ class CCVAE(tf.keras.Model):
         return c
 
 
-class MyModel:
+class Learner:
     def __init__(self, ip_shape, z_dim, z_classify, y_dim, num_samples, supervision, train_config):
         self.train_config = train_config
         self.ip_shape = ip_shape
@@ -264,26 +144,25 @@ class MyModel:
         self.optimiser = tf.keras.optimizers.Adam(self.lr)
 
     def load_model(self,  param_dir, model_id):
-        model = CCVAE(self.z_dim, self.z_classify, self.y_dim, self.train_config)
+        logger.info("Loading model from {} of model_id {}".format(param_dir, model_id))
 
         # BUILD First
-        _ = model.encoder(np.ones([1, *self.ip_shape]))
-        _ = model.decoder(np.ones([1, self.z_dim]))
-        _ = model.classifier(np.ones([1, self.z_classify]), np.ones([self.z_classify, self.y_dim])/2.)
-        _ = model.cond_prior(np.ones([1, self.y_dim]), np.ones([self.y_dim, self.z_classify], dtype=np.float32)/2.)
+        _ = self.model.encoder(np.ones([1, *self.ip_shape]))
+        _ = self.model.decoder(np.ones([1, self.z_dim]))
+        _ = self.model.classifier(np.ones([1, self.z_classify]), np.ones([self.z_classify, self.y_dim])/2.)
+        _ = self.model.cond_prior(np.ones([1, self.y_dim]), np.ones([self.y_dim, self.z_classify], dtype=np.float32)/2.)
 
-        model.encoder.load_weights(os.path.join(param_dir, "encoder_model_{}.h5".format(model_id)))
-        model.decoder.load_weights(os.path.join(param_dir, "decoder_model_{}.h5".format(model_id)))
-        model.classifier.load_weights(os.path.join(param_dir, "classifier_{}.h5".format(model_id)))
-        model.cond_prior.load_weights(os.path.join(param_dir, "cond_prior_{}.h5".format(model_id)))
+        self.model.encoder.load_weights(os.path.join(param_dir, "encoder_model_{}.h5".format(model_id)))
+        self.model.decoder.load_weights(os.path.join(param_dir, "decoder_model_{}.h5".format(model_id)))
+        self.model.classifier.load_weights(os.path.join(param_dir, "classifier_{}.h5".format(model_id)))
+        self.model.cond_prior.load_weights(os.path.join(param_dir, "cond_prior_{}.h5".format(model_id)))
 
         # Load gating parameters. Hacky way to do it. Override the value of the variables (not trainable)
         if self.train_config['gate_type'] == 'learnable':
             mu_init = np.load(os.path.join(param_dir, "learned_gating_matrix_{}.npy".format(model_id)))
             # Load the mu_init into the model's variables
-            model.mu = tf.Variable(initial_value=mu_init, trainable=True)
-
-        return model
+            self.model.mu = tf.Variable(initial_value=mu_init, trainable=True)
+            logging.info("Loaded learned mu")
 
     def classifier_loss(self, x, y, c, k=100):
         [post_locs, post_scales] = self.model.encoder(x)
@@ -345,7 +224,12 @@ class MyModel:
         # ELBO
         elbo = log_pxz + log_py - kl - log_qy_zc
         loss = tf.reduce_mean(-elbo)
-        return loss
+
+        # Add L1 regularization to the parameters of gating variables
+        if self.train_config['gate_type'] == 'learnable':
+            loss += self.train_config['gating_reg'] * tf.reduce_mean(tf.abs(self.model.mu))
+
+        return loss, c
 
     def sup_loss(self, x, y):
 
@@ -358,7 +242,6 @@ class MyModel:
 
         # Sample gating parameters c [Sample the latent graph topology]. It has shape [z_classify, y_dim]
         c = self.model.sample_gating_parameter(self.model.mu, temperature=self.gating_sampler_temp)
-
 
         # Tile z_classify to match the shape of c; Tiling does output_dim[i] = input_dim[i] * multiples[i].
         # z_classify_tiled has shape [batch, z_classify, y_dim]
@@ -393,12 +276,16 @@ class MyModel:
         # be viewed as redundant, as there is already gradients to update the predictive distribution due to the
         # log q(y|x) term anyway
 
-        # Note: PYTORCH Detach stops the tensor from being tracked in the subsequent operations involving the tensor:
-        # The original implementation is detaching the tensor z
-        # log_qy_z_ = tf.stop_gradient(tf.reduce_sum(tf.log(self.classifier([z]) + self.eps) * ln_curr_encode_y_ip,
-        #                                            axis=-1))
+        # The original implementation is detaching the tensor z_classify
+        z_classify_detached = tf.stop_gradient(z_classify)
+        z_classify_tiled_ = tf.tile(tf.expand_dims(z_classify_detached, axis=-1), multiples=[1, 1, self.y_dim])
+        logits_y_zc_ = self.model.classifier(z_classify_tiled_, c)
+        qy_zc_ = Bernoulli(logits=logits_y_zc_)
+        log_qy_zc_ = tf.reduce_sum(qy_zc_.log_prob(y), axis=-1)
+
         # Compute weighted ratio
-        w = tf.exp(log_qy_zc - log_qy_x)
+        w = tf.exp(log_qy_zc_ - log_qy_x)
+        # w = tf.exp(log_qy_zc - log_qy_x)
 
         # ELBO
         elbo_term1 = tf.math.multiply(w, log_pxz - kl - log_qy_zc)
@@ -406,18 +293,22 @@ class MyModel:
         elbo = elbo_term1 + log_py + log_qy_x
         loss = tf.reduce_mean(-elbo)
 
-        return loss
+        # Add L1 regularization to the parameters of gating variables
+        if self.train_config['gate_type'] == 'learnable':
+            loss += self.train_config['gating_reg'] * tf.reduce_mean(tf.abs(self.model.mu))
+
+        return loss, c
 
     @tf.function
     def train_step(self, x, y, supervised):
         with tf.GradientTape() as tape:
             if supervised:
-                loss = self.sup_loss(x, y)
+                loss, c = self.sup_loss(x, y)
             else:
-                loss = self.unsup_loss(x)
+                loss, c = self.unsup_loss(x)
         gradients = tape.gradient(loss, self.model.trainable_variables)
         self.optimiser.apply_gradients(zip(gradients, self.model.trainable_variables))
-        return loss
+        return loss, c
 
     def train(self, data_loaders, param_dir, fig_path):
 
@@ -425,11 +316,7 @@ class MyModel:
         # Train the Model
         for epoch in range(0, self.train_config['n_epochs']):
 
-            # Update the gating parameter of the network
-            if self.train_config['gate_type'] == 'learnable':
-                self.gating_sampler_temp = 0.99 ** epoch
-
-            # # # compute number of batches for an epoch
+            # compute number of batches for an epoch
             if self.train_config['perc_supervision'] == 1.0:  # fully supervised
                 batches_per_epoch = np.ceil(data_loaders['sup'].n_s/self.train_config['batch_size'])
                 period_sup_batches = 1
@@ -473,15 +360,22 @@ class MyModel:
                         (xs, ys) = next(unsup_iter)
 
                     if is_supervised:
-                        sup_loss = self.train_step(xs, ys, supervised=True)
+                        sup_loss, c = self.train_step(xs, ys, supervised=True)
+                        sup_loss = sup_loss.numpy()
                         # epoch_losses_sup += sup_loss.numpy()
                     else:
-                        unsup_loss = self.train_step(xs, ys, supervised=False)
+                        unsup_loss, c = self.train_step(xs, ys, supervised=False)
+                        unsup_loss = unsup_loss.numpy()
                         # epoch_losses_unsup += unsup_loss.numpy()
 
+                    c_total = np.sum(c.numpy())
+                    # Check if c is nan
+                    if np.isnan(c.numpy()).any():
+                        print(c.numpy())
+                        sys.exit(-1)
                     pbar.refresh()
                     pbar.set_description("Iteration: {}, Epoch: {}".format(i + 1, epoch + 1))
-                    pbar.set_postfix(SupCtr=ctr_sup, SupLoss=sup_loss, UnsupLoss=unsup_loss)
+                    pbar.set_postfix(SupCtr=ctr_sup, SupLoss=sup_loss, UnsupLoss=unsup_loss, c_avg=c_total)
                     pbar.update(1)
 
             if self.train_config['perc_supervision']:
@@ -505,6 +399,11 @@ class MyModel:
                     indexes = ["z{}".format(i + 1) for i in range(len(CELEBA_EASY_LABELS))]
                     gating_df = pd.DataFrame(self.model.mu.numpy(), index=indexes, columns=CELEBA_EASY_LABELS)
                     gating_df.to_csv(os.path.join(param_dir, "learned_gating_matrix_best.csv"))
+
+            # Update the temperature of the gating network
+            if self.train_config['gate_type'] == 'learnable':
+                self.gating_sampler_temp *= 0.99
+                logger.info('gating_sampler_temp decayed to: %.4f' % self.gating_sampler_temp)
 
         # Save the model
         logger.info("Saving last model...")
@@ -572,7 +471,8 @@ def run(args, sup=0.0):
         'n_classes': len(CELEBA_EASY_LABELS),
         'gate_type': args.gate_type,
         'gate_subtype': args.gate_subtype,
-        'gating_init_temp': 1.0 if args.gate_type == 'learnable' else 0.1,
+        'gating_init_temp': 1.0 if args.gate_type == 'learnable' else 0.3,
+        'gating_reg': args.l1_reg
     }
 
     # Dump the config into log file
@@ -591,7 +491,11 @@ def run(args, sup=0.0):
     model_dir = os.path.join(root_dir, "models")
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
-    param_dir = os.path.join(model_dir, "params_{}".format(sup))
+    if args.gate_type == 'learnable':
+        param_dir = os.path.join(model_dir, "params_{}_{}".format(sup, args.gate_type))
+    else:
+        param_dir = os.path.join(model_dir, "params_{}_{}_{}".format(sup, args.gate_type, args.gate_subtype))
+
     fig_path = os.path.join(model_dir, '{}_loss'.format('CCVAE'))
 
     # ################################################ Load Data ################################################ #
@@ -610,7 +514,7 @@ def run(args, sup=0.0):
     else:
         num_samples = loaders['sup'].n_s + loaders['unsup'].n_s
 
-    ssvae_learner = MyModel(ip_shape=im_shape, z_dim=train_config['z_dim'], z_classify=train_config['n_classes'],
+    ssvae_learner = Learner(ip_shape=im_shape, z_dim=train_config['z_dim'], z_classify=train_config['n_classes'],
                             y_dim=train_config['n_classes'], num_samples=num_samples,
                             supervision=train_config['perc_supervision'], train_config=train_config)
     if not os.path.exists(param_dir):
@@ -627,6 +531,8 @@ def run(args, sup=0.0):
     if args.do_test:
         logger.info("Testing best model..")
         ssvae_learner.load_model(param_dir, 'best')
+        # Since we are testing, set the gating sampler temperature to 0.3
+        ssvae_learner.gating_sampler_temp = 0.3  # This stmt. will only affect the gating scheme = 'learnable'
         test_accuracy = ssvae_learner.accuracy(loaders['test'])
         logger.info("Test Accuracy (best model): %.3f" % test_accuracy)
 
@@ -635,7 +541,6 @@ if __name__ == "__main__":
 
     args = get_config()
 
-    # sup = [1.0, 0.5, 0.1]
-    sup = [1.0]
+    sup = [1.0, 0.5, 0.2]
     for s in sup:
         run(args, sup=s)

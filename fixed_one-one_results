@@ -1,0 +1,75 @@
+05/03/2022 11:06:32 - INFO - __main__ -   
+
+---------------------------------- Supervision 1.0 ----------------------------------
+05/03/2022 11:06:32 - INFO - __main__ -   {
+    "n_epochs": 75,
+    "batch_size": 256,
+    "num_iters": 10,
+    "lr": 0.0001,
+    "init_temp": 0.1,
+    "anneal_rate": 3e-05,
+    "perc_supervision": 1.0,
+    "z_dim": 45,
+    "n_classes": 18,
+    "gate_type": "fixed",
+    "gate_subtype": "one-one",
+    "gating_init_temp": 0.3,
+    "gating_reg": 0.2
+}
+05/03/2022 11:06:32 - INFO - __main__ -   Loading data...
+05/03/2022 11:06:39 - INFO - utils_data -   Loading gating matrix from ./data/gating_matrix_1.0.npy
+05/03/2022 11:06:41 - INFO - __main__ -   Input Shape: (64, 64, 3), Latent Dim (z_classify = 18): 45, Label Dim: 18
+05/03/2022 11:06:41 - INFO - __main__ -   Skipping training
+05/03/2022 11:06:41 - INFO - __main__ -   Testing best model..
+05/03/2022 11:06:41 - INFO - __main__ -   Loading model from ./models/params_1.0_fixed_one-one of model_id best
+05/03/2022 11:07:30 - INFO - __main__ -   Test Accuracy (best model): 0.814
+05/03/2022 11:07:30 - INFO - __main__ -   
+
+---------------------------------- Supervision 0.5 ----------------------------------
+05/03/2022 11:07:30 - INFO - __main__ -   {
+    "n_epochs": 75,
+    "batch_size": 256,
+    "num_iters": 10,
+    "lr": 0.0001,
+    "init_temp": 0.1,
+    "anneal_rate": 3e-05,
+    "perc_supervision": 0.5,
+    "z_dim": 45,
+    "n_classes": 18,
+    "gate_type": "fixed",
+    "gate_subtype": "one-one",
+    "gating_init_temp": 0.3,
+    "gating_reg": 0.2
+}
+05/03/2022 11:07:30 - INFO - __main__ -   Loading data...
+05/03/2022 11:07:35 - INFO - utils_data -   Loading gating matrix from ./data/gating_matrix_0.5.npy
+05/03/2022 11:07:38 - INFO - __main__ -   Input Shape: (64, 64, 3), Latent Dim (z_classify = 18): 45, Label Dim: 18
+05/03/2022 11:07:38 - INFO - __main__ -   Skipping training
+05/03/2022 11:07:38 - INFO - __main__ -   Testing best model..
+05/03/2022 11:07:38 - INFO - __main__ -   Loading model from ./models/params_0.5_fixed_one-one of model_id best
+05/03/2022 11:08:25 - INFO - __main__ -   Test Accuracy (best model): 0.748
+05/03/2022 11:08:25 - INFO - __main__ -   
+
+---------------------------------- Supervision 0.2 ----------------------------------
+05/03/2022 11:08:25 - INFO - __main__ -   {
+    "n_epochs": 75,
+    "batch_size": 256,
+    "num_iters": 10,
+    "lr": 0.0001,
+    "init_temp": 0.1,
+    "anneal_rate": 3e-05,
+    "perc_supervision": 0.2,
+    "z_dim": 45,
+    "n_classes": 18,
+    "gate_type": "fixed",
+    "gate_subtype": "one-one",
+    "gating_init_temp": 0.3,
+    "gating_reg": 0.2
+}
+05/03/2022 11:08:25 - INFO - __main__ -   Loading data...
+05/03/2022 11:08:29 - INFO - utils_data -   Loading gating matrix from ./data/gating_matrix_0.2.npy
+05/03/2022 11:08:32 - INFO - __main__ -   Input Shape: (64, 64, 3), Latent Dim (z_classify = 18): 45, Label Dim: 18
+05/03/2022 11:08:32 - INFO - __main__ -   Skipping training
+05/03/2022 11:08:32 - INFO - __main__ -   Testing best model..
+05/03/2022 11:08:32 - INFO - __main__ -   Loading model from ./models/params_0.2_fixed_one-one of model_id best
+05/03/2022 11:09:20 - INFO - __main__ -   Test Accuracy (best model): 0.680
